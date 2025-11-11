@@ -1,393 +1,1201 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Supply Chain Management Dashboard</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Supply Chain Manager Dashboard — Module 1</title>
+
+  <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <style>
-    body {
-      font-family: 'Inter', sans-serif;
-      margin: 0;
-      background-color: #f8f9fa;
-      color: #fff;
+    :root{
+      --bg: #f3f4f6; /* light gray background */
+      --card-bg: #1f2937; /* dark card */
+      --accent: #2563eb; /* blue accent */
+      --muted: #9ca3af;
+      --white: #ffffff;
+      --shadow: 0 6px 18px rgba(31,41,55,0.22);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    }
+    html,body{height:100%;margin:0;background:var(--bg);color:#111827;}
+    .topbar{
+      background:#000;
+      color:#fff;
+      padding:18px 28px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    }
+    .container{
+      padding:20px 28px;
+      max-width:1600px;
+      margin:18px auto;
+      display:grid;
+      grid-template-columns: 480px 1fr;
+      gap:20px;
+    }
+    /* left column */
+    .card{
+      background:var(--card-bg);
+      color:var(--white);
+      border-radius:12px;
+      padding:18px;
+      box-shadow:var(--shadow);
+    }
+    .muted{color:var(--muted)}
+    .company-list{
+      margin-top:12px;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      max-height:480px;
+      overflow:auto;
+    }
+    .company-item{
+      background:rgba(255,255,255,0.04);
+      border-radius:8px;
+      padding:10px;
+      cursor:pointer;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+    }
+    .company-item:hover{background:rgba(255,255,255,0.06)}
+    .btn{
+      background:var(--accent);
+      color:white;
+      border:none;
+      padding:8px 12px;
+      border-radius:8px;
+      cursor:pointer;
+      box-shadow:0 6px 12px rgba(37,99,235,0.12);
+    }
+    .btn.ghost{
+      background:transparent;
+      border:1px solid rgba(255,255,255,0.08);
+    }
+    /* right column layout */
+    .main-grid{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap:16px;
+    }
+    .section-title{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+      margin-bottom:10px;
     }
 
-    header {
-      background-color: #000;
-      text-align: center;
-      padding: 15px;
-      font-size: 1.8rem;
-      font-weight: 600;
-      color: #fff;
-      letter-spacing: 1px;
+    /* KPI area: side-by-side on large screens */
+    .kpi-row{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap:14px;
+    }
+    @media(min-width:1024px){
+      .container{grid-template-columns: 320px 1fr;}
+      .kpi-row{grid-template-columns: 2fr 1fr;} /* chart (2fr) + disruption panel (1fr) */
     }
 
-    .card {
-      background-color: #2f2f2f;
-      border-radius: 12px;
-      padding: 20px;
-      margin: 20px auto;
-      width: 85%;
-      box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.3);
+    .kpi-card{
+      background:var(--card-bg);
+      border-radius:12px;
+      padding:16px;
+      color:var(--white);
+      box-shadow:var(--shadow);
+    }
+    .small{
+      font-size:13px;
+      color:var(--muted);
+    }
+    .metric{
+      display:flex;
+      gap:14px;
+      align-items:center;
+      justify-content:space-between;
+      padding:10px 0;
+      border-bottom:1px dashed rgba(255,255,255,0.04);
+    }
+    .metric:last-child{border-bottom:none}
+    /* transactions */
+    .transactions{
+      display:grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap:12px;
+    }
+    @media(max-width:900px){
+      .transactions{grid-template-columns:1fr;}
+    }
+    .trans-list{
+      max-height:260px;
+      overflow:auto;
+      margin-top:8px;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .trans-item{
+      background:rgba(255,255,255,0.03);
+      padding:10px;border-radius:8px;
+      font-size:13px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+    }
+    label small{display:block;color:var(--muted);font-size:12px}
+
+    /* modals */
+    .modal-backdrop{
+      position:fixed;inset:0;background:rgba(15,23,42,0.6);display:none;align-items:center;justify-content:center;z-index:40;
+    }
+    .modal{
+      background:white;color:#111827;border-radius:10px;padding:18px;width:720px;max-width:96%;
+      box-shadow:0 12px 32px rgba(0,0,0,0.4);
+    }
+    .form-row{display:flex;gap:10px;margin-bottom:10px}
+    .form-row > *{flex:1}
+    input,select,textarea{
+      padding:8px;border-radius:8px;border:1px solid #e5e7eb;width:100%;
+    }
+    .chip{background:rgba(255,255,255,0.06);padding:6px 8px;border-radius:999px;font-size:12px}
+    .collapse{cursor:pointer}
+    footer{margin-top:6px;display:flex;gap:8px;justify-content:flex-end}
+    .controls{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+    .small-muted{font-size:12px;color:var(--muted)}
+
+    /* Tab controls */
+    .tabbar{display:flex;gap:8px;margin-bottom:12px}
+    .tab{padding:8px 12px;border-radius:8px;cursor:pointer;background:rgba(255,255,255,0.03);color:var(--white)}
+    .tab.active{background:var(--white);color:#111827}
+
+    /* basic responsive tweaks */
+    @media(max-width:680px){
+      .container{padding:12px;}
     }
 
-    h2, h3 {
-      color: #fff;
-    }
-
-    label {
-      color: #ccc;
-      font-weight: 600;
-    }
-
-    select, input, button {
-      border: none;
-      border-radius: 6px;
-      padding: 8px;
-      margin: 5px;
-    }
-
-    select, input {
-      width: 250px;
-    }
-
-    button {
-      background-color: #007bff;
-      color: white;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.3s;
-    }
-
-    button:hover {
-      background-color: #0056b3;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      color: #ddd;
-      margin-top: 10px;
-    }
-
-    th, td {
-      border-bottom: 1px solid #444;
-      padding: 10px;
-      text-align: center;
-    }
-
-    .flex {
-      display: flex;
-      justify-content: space-between;
-      flex-wrap: wrap;
-    }
-
-    .column {
-      flex: 1;
-      margin: 10px;
-      min-width: 250px;
-    }
-
-    canvas {
-      background-color: #222;
-      border-radius: 10px;
-      padding: 10px;
-    }
-
-    .divider {
-      border-top: 2px solid #444;
-      margin: 20px 0;
-    }
-
-    .addCompanyForm {
-      margin-top: 10px;
-      display: none;
-    }
-
+    .modal .btn.ghost {
+  color: #111827; /* dark text */
+  border: 1px solid #d1d5db; /* subtle gray border */
+}
   </style>
 </head>
 <body>
-  <header>Supply Chain Management Dashboard</header>
-
-  <div class="card">
-    <h2>Company Info</h2>
-
-    <!-- Company Selector -->
-    <div>
-      <label>Select Existing Company:</label>
-      <select id="companySelect" onchange="loadCompanyInfo()">
-        <option value="">-- Choose a Company --</option>
-        <option value="alpha">Alpha Inc</option>
-        <option value="beta">Beta LLC</option>
-        <option value="gamma">Gamma Co</option>
-      </select>
+  <div class="topbar">
+    <div style="display:flex;gap:14px;align-items:center">
+      <strong>Supply Chain Manager — Module 1</strong>
+      <span class="small-muted">Palantir-style demo</span>
     </div>
+    <div class="small-muted">Demo · Dummy Data · Persisted to localStorage</div>
+  </div>
 
-    <!-- Add Company Button -->
-    <div style="margin-top:15px;">
-      <button onclick="toggleAddCompany()">➕ Add New Company</button>
-    </div>
+  <div class="container">
+    <!-- LEFT: Controls and Company List -->
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-size:14px;font-weight:600">Companies</div>
+            <div class="small-muted" style="font-size:12px">Search and select a company</div>
+          </div>
+          <button class="btn" id="btnAddCompany" onclick="openEditCompany(null)">+ New</button>
+        </div>
 
-    <!-- Add Company Form -->
-    <div class="addCompanyForm" id="addCompanyForm">
-      <h3>Add a New Company</h3>
-      <input id="newName" placeholder="Company Name" /><br>
-      <input id="newAddress" placeholder="Address" /><br>
-      <input id="newTier" placeholder="Tier Level" /><br>
-      <input id="newFinancial" placeholder="Financial Status" /><br>
-      <input id="newCapacity" placeholder="Capacity" /><br>
-      <button onclick="saveNewCompany()">Save Company</button>
-    </div>
+        <div style="margin-top:12px">
+          <input id="companySearch" placeholder="Type to filter companies..." style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:var(--white)" oninput="filterCompanies()" />
+        </div>
 
-    <!-- Company Details -->
-    <div id="companyDetails" style="margin-top:15px;">
-      <div class="flex">
-        <div class="column"><label>Address:</label><br><span id="address"></span></div>
-        <div class="column"><label>Tier Level:</label><br><span id="tier"></span></div>
-        <div class="column"><label>Financial Status:</label><br><span id="financial"></span></div>
-        <div class="column"><label>Capacity:</label><br><span id="capacity"></span></div>
+        <div class="company-list" id="companyList" style="margin-top:12px"></div>
       </div>
-      <div class="flex">
-        <div class="column"><label>Dependence:</label><br><ul id="dependenceList"></ul></div>
-        <div class="column"><label>Dependents:</label><br><ul id="dependentsList"></ul></div>
+
+      <!-- Selected company quick view -->
+      <div class="card" id="companyDetailsCard" style="min-height:220px;display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div id="companyName" style="font-size:18px;font-weight:700"></div>
+            <div class="small-muted" id="companyType"></div>
+          </div>
+          <div style="display:flex;gap:10px">
+            <button class="btn ghost" onclick="openEditCompany(currentCompany)">Edit Company Info</button>
+            <button class="btn" onclick="downloadCompany()">Export</button>
+          </div>
+        </div>
+
+        <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <div class="small">Address</div>
+            <div id="companyAddress" style="margin-top:6px"></div>
+
+            <div class="small" style="margin-top:12px">Who They Depend On</div>
+            <div id="companyDependencies" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"></div>
+
+            <div class="small" style="margin-top:12px">Who Depends On Them</div>
+            <div id="companyDependents" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"></div>
+
+
+            <div class="small" style="margin-top:12px">Products</div>
+            <div id="companyProducts" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap"></div>
+          </div>
+
+          <div>
+            <div class="small">Financial Status</div>
+            <div id="companyFinances" style="margin-top:6px"></div>
+
+            <div class="small" style="margin-top:12px" id="companyCapacityLabel">Capacity / Routes</div>
+            <div id="companyCapacity" style="margin-top:6px"></div>
+
+            <div class="small" style="margin-top:12px">Tier</div>
+            <div id="companyTier" style="margin-top:6px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Main content -->
+    <div class="main-grid">
+      <!-- Tabs -->
+      <div class="card" style="padding:12px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="font-weight:700">Overview</div>
+          <div class="small-muted">Switch between KPI & Transactions</div>
+        </div>
+
+        <div class="tabbar">
+          <div id="tabKPIs" class="tab active" onclick="showTab('kpis')">KPI Performance</div>
+          <div id="tabTx" class="tab" onclick="showTab('tx')">Transactions</div>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center">
+            <label class="small-muted" style="font-size:13px">Start</label>
+            <input id="filterStart" type="date" />
+            <label class="small-muted" style="font-size:13px">End</label>
+            <input id="filterEnd" type="date" />
+            <button class="btn" onclick="applyFilters()">Apply Filters</button>
+        </div>
+      </div>
+
+      <!-- KPI Performance Card (tab content) -->
+      <div id="kpiCard" class="card" style="padding:14px">
+        <div class="section-title">
+          <div>
+            <div style="font-weight:700">KPI Performance</div>
+            <div class="small-muted">On-time, delays, financials & disruptions (past 12 months)</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn ghost" onclick="exportKPIs()">Export KPI Snapshot</button>
+          </div>
+        </div>
+
+        <div class="kpi-row" style="margin-top:10px">
+          <!-- KPI Chart (left) -->
+          <div class="kpi-card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div style="font-weight:700">Last 12 months — Trends</div>
+              <div class="small-muted">Toggle series</div>
+            </div>
+
+            <canvas id="kpiChart" style="margin-top:12px;height:260px"></canvas>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+              <label><input type="checkbox" class="metric-toggle" data-key="onTime" checked onchange="toggleDataset(this)" /> On-time Delivery</label>
+              <label><input type="checkbox" class="metric-toggle" data-key="avgDelay" checked onchange="toggleDataset(this)" /> Avg Delay</label>
+              <label><input type="checkbox" class="metric-toggle" data-key="fin" checked onchange="toggleDataset(this)" /> Financial Health</label>
+            </div>
+
+            <div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap">
+              <div class="chip">On-time: <strong id="kpiOnTime">—</strong></div>
+              <div class="chip">Avg Delay (days): <strong id="kpiAvgDelay">—</strong></div>
+              <div class="chip">Delay σ: <strong id="kpiStdDelay">—</strong></div>
+            </div>
+          </div>
+
+          <!-- Disruption Panel (right) -->
+          <div class="kpi-card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div style="font-weight:700">Disruption Events</div>
+              <div class="small-muted">Past 12 months</div>
+            </div>
+
+            <div style="margin-top:10px">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <div class="small-muted">Monthly counts</div>
+                <button class="btn ghost" onclick="toggleCollapse('disruptList')">Toggle List</button>
+              </div>
+
+              <canvas id="disruptHist" style="margin-top:12px;height:160px"></canvas>
+
+              <div id="disruptList" style="margin-top:10px;max-height:200px;overflow:auto">
+                <!-- events inserted here -->
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Transactions Card (tab content) -->
+      <div id="txCard" class="card" style="padding:14px;display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div style="font-weight:700">Transactions</div>
+            <div class="small-muted">Filterable by date — grouped by type. Data stored on company object.</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn" onclick="openTransactionModal(null)">Add Transaction</button>
+            <button class="btn ghost" onclick="clearFilters()">Reset</button>
+          </div>
+        </div>
+
+        <div style="margin-top:12px" class="transactions">
+          <div>
+            <div class="small-muted">Shipping</div>
+            <div class="trans-list" id="transShipping"></div>
+          </div>
+          <div>
+            <div class="small-muted">Receiving</div>
+            <div class="trans-list" id="transReceiving"></div>
+          </div>
+          <div>
+            <div class="small-muted">Adjustments</div>
+            <div class="trans-list" id="transAdjustments"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Activity -->
+      <div class="card" style="padding:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="font-weight:700">Activity</div>
+          <div class="small-muted">Recent edits and saves</div>
+        </div>
+        <div id="activityLog" style="margin-top:10px" class="small-muted">No activity yet.</div>
       </div>
     </div>
   </div>
 
-  <div class="card">
-    <h3>Products</h3>
-    <div class="flex" id="productList"></div>
-  </div>
+  <!-- Edit Company Modal (unchanged) -->
+  <div id="modalCompany" class="modal-backdrop" onclick="closeModalIfBackdrop(event,'modalCompany')">
+    <div class="modal" role="dialog" onclick="event.stopPropagation()">
+      <div style="font-weight:700">Edit Company Info</div>
+      <div class="small-muted" style="margin-bottom:8px">Make any changes and click Save</div>
 
-  <div class="card">
-    <h3>Transactions</h3>
-    <table id="transactionTable">
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>Shipping From</th>
-          <th>Receiving To</th>
-          <th>Volume</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </div>
+      <div style="margin-top:8px">
+        <div class="form-row">
+          <input id="editName" placeholder="Company Name" />
+          <select id="editType">
+            <option value="Manufacturer">Manufacturer</option>
+            <option value="Distributor">Distributor</option>
+            <option value="Retailer">Retailer</option>
+            <option value="Supplier">Supplier</option>
+          </select>
+        </div>
 
-  <div class="card">
-    <h3>Key Performance Indicators</h3>
-    <div class="flex">
-      <div>
-        <label>Start Date:</label><br>
-        <input type="date" id="startDate">
-      </div>
-      <div>
-        <label>End Date:</label><br>
-        <input type="date" id="endDate">
+        <div class="form-row">
+          <input id="editTier" placeholder="Tier (e.g., Tier 1)" />
+          <input id="editAddress" placeholder="Address" />
+        </div>
+
+        <div class="form-row">
+          <input id="editCapacity" placeholder="Capacity (if manufacturer) or Routes" />
+          <input id="editFinancial" placeholder="Financial metric (e.g., cash on hand)" />
+        </div>
+
+        <div style="margin-bottom:8px">
+          <label class="small-muted">Dependencies (comma separated)</label>
+          <input id="editDependencies" placeholder="IDs or names, comma separated" />
+        </div>
+
+        <div>
+          <label class="small-muted">Products (comma separated)</label>
+          <input id="editProducts" placeholder="Product A, Product B" />
+        </div>
+
+        <footer>
+          <button class="btn ghost" aria-label="Cancel editing company info" onclick="closeModal('modalCompany')">Cancel</button>
+          <button class="btn" onclick="saveCompany()">Save Company</button>
+        </footer>
       </div>
     </div>
-
-    <div class="divider"></div>
-
-    <div class="flex">
-      <div class="column"><label>On-time Delivery Rate:</label><br><span id="otRate"></span></div>
-      <div class="column"><label>Average Delay:</label><br><span id="avgDelay"></span></div>
-      <div class="column"><label>Financial Health:</label><br><span id="finHealth"></span></div>
-    </div>
-
-    <div class="divider"></div>
-    <canvas id="kpiChart" height="120"></canvas>
   </div>
 
-  <script>
-    const companies = {
-      alpha: {
-        name: "Alpha Inc",
-        address: "123 Main St, Dallas, TX",
-        tier: "Tier 1",
-        financial: "Stable",
-        capacity: "1200 units/day",
-        dependence: ["SteelCorp", "ChemPro"],
-        dependents: ["LogiMax", "PetroChain"],
-        products: ["Lubricant A", "Fuel B", "Additive X"],
-        transactions: [
-          { date: "2025-10-31", ship: "Dallas", recv: "Houston", volume: 450, status: "Completed" },
-          { date: "2025-11-02", ship: "Dallas", recv: "Austin", volume: 350, status: "In Transit" },
-        ],
-        kpi: {
-          ot: "94%",
-          delay: "2.1 days",
-          health: "Good",
-          trend: {
-            ot: [90, 94, 95, 92],
-            delay: [3.1, 2.5, 2.2, 2.1],
-            health: [85, 90, 93, 95],
-          }
-        }
-      },
-      beta: {
-        name: "Beta LLC",
-        address: "567 Industrial Rd, Denver, CO",
-        tier: "Tier 2",
-        financial: "Moderate Risk",
-        capacity: "900 units/day",
-        dependence: ["Alpha Inc"],
-        dependents: ["Gamma Co"],
-        products: ["Resin C", "Adhesive D"],
-        transactions: [
-          { date: "2025-10-29", ship: "Denver", recv: "Chicago", volume: 320, status: "Completed" },
-          { date: "2025-11-01", ship: "Denver", recv: "Omaha", volume: 250, status: "Delayed" },
-        ],
-        kpi: {
-          ot: "87%",
-          delay: "3.5 days",
-          health: "Fair",
-          trend: {
-            ot: [80, 85, 88, 87],
-            delay: [4.5, 3.9, 3.8, 3.5],
-            health: [70, 75, 78, 80],
-          }
-        }
-      },
-      gamma: {
-        name: "Gamma Co",
-        address: "890 Harbor Ln, Seattle, WA",
-        tier: "Tier 3",
-        financial: "Weak",
-        capacity: "600 units/day",
-        dependence: ["Beta LLC"],
-        dependents: [],
-        products: ["Component E", "Material F"],
-        transactions: [
-          { date: "2025-10-30", ship: "Seattle", recv: "Portland", volume: 280, status: "Completed" },
-        ],
-        kpi: {
-          ot: "78%",
-          delay: "4.8 days",
-          health: "Poor",
-          trend: {
-            ot: [70, 75, 78, 77],
-            delay: [6, 5.5, 5, 4.8],
-            health: [60, 65, 68, 70],
-          }
-        }
+  <!-- Transaction Modal (unchanged fields) -->
+  <div id="modalTransaction" class="modal-backdrop" onclick="closeModalIfBackdrop(event,'modalTransaction')">
+    <div class="modal" role="dialog" onclick="event.stopPropagation()">
+      <div style="font-weight:700" id="transModalTitle">Add Transaction</div>
+      <div class="small-muted" style="margin-bottom:8px">Fill details</div>
+
+      <div style="margin-top:8px">
+        <div class="form-row">
+          <select id="transType">
+            <option>Shipping</option>
+            <option>Receiving</option>
+            <option>Adjustment</option>
+          </select>
+          <input id="transDate" type="date" />
+        </div>
+
+        <div class="form-row">
+          <input id="transExpected" type="date" placeholder="Expected Delivery (if applicable)" />
+          <input id="transActual" type="date" placeholder="Actual Delivery (if applicable)" />
+        </div>
+
+        <div class="form-row">
+          <input id="transQty" type="number" placeholder="Quantity" />
+          <input id="transProduct" placeholder="Product" />
+        </div>
+
+        <div style="margin-bottom:8px">
+          <label class="small-muted">Notes</label>
+          <textarea id="transNotes" rows="3"></textarea>
+        </div>
+
+        <footer>
+          <button class="btn ghost" aria-label="Cancel editing company info" onclick="closeModal('modalTransaction')">Cancel</button>
+          <button class="btn" onclick="saveTransaction()">Save Transaction</button>
+        </footer>
+      </div>
+    </div>
+  </div>
+
+<script>
+/*
+  Dashboard JavaScript
+  - Dummy data included
+  - Save Company function persists to localStorage key 'scm_companies'
+  - Transactions persisted to 'scm_transactions'
+  - New: company.transactions kept in sync; disruption histogram added
+*/
+
+let companies = [];
+let transactions = [];
+let disruptions = [];
+let currentCompany = null;
+let activityLog = [];
+let kpiChart = null;
+let disruptChart = null;
+
+/* ---------- Demo data init & sync ---------- */
+function initDemoData(){
+  // Try to load persisted
+  const cstr = localStorage.getItem('scm_companies');
+  const tstr = localStorage.getItem('scm_transactions');
+  const dstr = localStorage.getItem('scm_disruptions');
+
+  if(cstr && tstr && dstr){
+    companies = JSON.parse(cstr);
+    transactions = JSON.parse(tstr);
+    disruptions = JSON.parse(dstr);
+
+    // ensure each company has transactions array (sync from transactions list if missing)
+    companies.forEach(c=>{
+      if(!c.transactions) c.transactions = [];
+    });
+    // Merge any transactions global -> company.transactions (avoid duplicates)
+    transactions.forEach(t=>{
+      const comp = companies.find(c=>c.id===t.companyId);
+      if(comp){
+        comp.transactions = comp.transactions || [];
+        if(!comp.transactions.find(x=>x.id===t.id)) comp.transactions.push(t);
       }
-    };
+    });
+    localStorage.setItem('scm_companies', JSON.stringify(companies));
+  } else {
+    // Create initial dummy companies & transactions & disruptions
+    companies = [
+      {
+        id:'C-100',
+        name:'Atlas Manufacturing',
+        type:'Manufacturer',
+        tier:'Tier 1',
+        address:'1200 Foundry Rd, Springfield, IL',
+        capacity:'5,000 units / month',
+        finances: [
+          { date:'2024-11-01', cash:420000 },
+          { date:'2025-01-01', cash:450000 },
+          { date:'2025-05-01', cash:480000 },
+          { date:'2025-07-01', cash:500000 },
+          { date:'2025-08-01', cash:480000 },
+          { date:'2025-09-01', cash:470000 },
+          { date:'2025-10-01', cash:510000 },
+        ],
+        dependencies:['C-200','C-300'],
+        products:['Widget A','Widget B','Widget C'],
+        transactions: []
+      },
+      {
+        id:'C-200',
+        name:'NorthStar Distributors',
+        type:'Distributor',
+        tier:'Tier 2',
+        address:'22 Harbor Lane, Boston, MA',
+        capacity:'Routes: NE Corridor (12 routes)',
+        finances:[
+          { date:'2025-01-01', cash:160000 },
+          { date:'2025-05-01', cash:170000 },
+          { date:'2025-07-01', cash:180000 },
+          { date:'2025-08-01', cash:175000 },
+          { date:'2025-09-01', cash:160000 },
+          { date:'2025-10-01', cash:190000 },
+        ],
+        dependencies:['C-100'],
+        products:['Widget A','Widget A - Packaged'],
+        transactions: []
+      },
+      {
+        id:'C-300',
+        name:'Prime Suppliers Inc.',
+        type:'Supplier',
+        tier:'Tier 3',
+        address:'4000 Supply Blvd, Dallas, TX',
+        capacity:'N/A',
+        finances:[
+          { date:'2025-01-01', cash:80000 },
+          { date:'2025-05-01', cash:88000 },
+          { date:'2025-07-01', cash:90000 },
+          { date:'2025-08-01', cash:95000 },
+          { date:'2025-09-01', cash:90000 },
+          { date:'2025-10-01', cash:92000 },
+        ],
+        dependencies:[],
+        products:['Raw Alloy','Fasteners'],
+        transactions: []
+      }
+    ];
 
-    let chart;
+    // Dummy transactions (mix of types) - we will populate both transactions array and company.transactions
+    transactions = [
+      { id:'T-1', companyId:'C-100', type:'Shipping', date:'2025-10-02', expected:'2025-10-05', actual:'2025-10-05', qty:100, product:'Widget A', notes:'' },
+      { id:'T-2', companyId:'C-200', type:'Receiving', date:'2025-10-05', expected:'2025-10-07', actual:'2025-10-08', qty:60, product:'Widget A', notes:'Delayed due to weather' },
+      { id:'T-3', companyId:'C-100', type:'Adjustment', date:'2025-09-09', expected:null, actual:null, qty:-10, product:'Widget B', notes:'Quality hold' },
+      { id:'T-4', companyId:'C-200', type:'Shipping', date:'2025-09-20', expected:'2025-09-23', actual:'2025-09-23', qty:200, product:'Widget A', notes:'' },
+      { id:'T-5', companyId:'C-100', type:'Receiving', date:'2025-08-12', expected:'2025-08-14', actual:'2025-08-14', qty:500, product:'Raw Alloy', notes:'' },
+      { id:'T-6', companyId:'C-300', type:'Shipping', date:'2025-10-03', expected:'2025-10-05', actual:'2025-10-06', qty:150, product:'Fasteners', notes:'Traffic delay' },
+      { id:'T-7', companyId:'C-100', type:'Receiving', date:'2025-07-07', expected:'2025-07-09', actual:'2025-07-08', qty:120, product:'Raw Alloy', notes:'' },
+    ];
 
-    function toggleAddCompany() {
-      const form = document.getElementById("addCompanyForm");
-      form.style.display = form.style.display === "none" ? "block" : "none";
+    // add transactions into company.transactions
+    transactions.forEach(t=>{
+      const comp = companies.find(c=>c.id===t.companyId);
+      if(comp){
+        comp.transactions = comp.transactions || [];
+        comp.transactions.push(t);
+      }
+    });
+
+    disruptions = [
+      { id:'D-1', companyId:'C-100', date:'2025-10-08', severity:'Medium', description:'Port congestion delayed inbound shipments' },
+      { id:'D-2', companyId:'C-200', date:'2025-09-21', severity:'High', description:'Truckers strike affected NE routes' },
+      { id:'D-3', companyId:'C-300', date:'2025-08-13', severity:'Low', description:'Minor supplier production hiccup' },
+      { id:'D-4', companyId:'C-100', date:'2025-06-19', severity:'Low', description:'Temporary warehouse power outage' },
+      { id:'D-5', companyId:'C-100', date:'2025-03-05', severity:'Medium', description:'Supplier factory slowdown' },
+    ];
+
+    // persist initial
+    localStorage.setItem('scm_companies', JSON.stringify(companies));
+    localStorage.setItem('scm_transactions', JSON.stringify(transactions));
+    localStorage.setItem('scm_disruptions', JSON.stringify(disruptions));
+  }
+}
+
+/* ---------- Helpers ---------- */
+function formatDate(d){
+  if(!d) return '—';
+  const dt = new Date(d);
+  if(isNaN(dt)) return d;
+  return dt.toLocaleDateString();
+}
+
+function monthsBackLabel(n, base = new Date()){
+  const d = new Date(base.getFullYear(), base.getMonth() - n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+
+/* ---------- Company list / selection ---------- */
+function renderCompanyList(filter = ''){
+  const list = document.getElementById('companyList');
+  list.innerHTML = '';
+  const q = filter.trim().toLowerCase();
+  companies.filter(c => c.name.toLowerCase().includes(q) || c.id.toLowerCase().includes(q))
+           .forEach(c => {
+    const div = document.createElement('div');
+    div.className = 'company-item';
+    div.innerHTML = `<div>
+                        <div style="font-weight:600">${c.name}</div>
+                        <div class="small-muted">${c.id} · ${c.type}</div>
+                     </div>
+                     <div style="text-align:right">
+                        <div class="small-muted">${c.tier || ''}</div>
+                        <div style="margin-top:6px">
+                          <button class="btn ghost" onclick="event.stopPropagation(); openEditCompany('${c.id}')">Edit</button>
+                          <button class="btn" onclick="event.stopPropagation(); selectCompany('${c.id}')">Open</button>
+                        </div>
+                     </div>`;
+    div.onclick = () => selectCompany(c.id);
+    list.appendChild(div);
+  });
+}
+
+function filterCompanies(){
+  const v = document.getElementById('companySearch').value;
+  renderCompanyList(v);
+}
+
+function selectCompany(id){
+  const comp = companies.find(c=>c.id===id);
+  if(!comp) return;
+  currentCompany = comp;
+  document.getElementById('companyDetailsCard').style.display = 'block';
+  document.getElementById('companyName').innerText = `${comp.name} (${comp.id})`;
+  document.getElementById('companyType').innerText = `${comp.type} · ${comp.tier || ''}`;
+  document.getElementById('companyAddress').innerText = comp.address || '—';
+ // Who they depend on
+const deps = document.getElementById('companyDependencies');
+deps.innerHTML = '';
+(comp.dependencies || []).forEach(d => {
+  const el = document.createElement('div');
+  el.className = 'chip';
+  const depCompany = companies.find(x => x.id === d || x.name === d);
+  el.innerText = depCompany ? `${depCompany.name} (${depCompany.id})` : d;
+  deps.appendChild(el);
+});
+
+// Who depends on them (reverse lookup)
+const dependents = document.getElementById('companyDependents');
+dependents.innerHTML = '';
+const dependentCompanies = companies.filter(c => (c.dependencies || []).includes(comp.id));
+if (dependentCompanies.length) {
+  dependentCompanies.forEach(dc => {
+    const el = document.createElement('div');
+    el.className = 'chip';
+    el.innerText = `${dc.name} (${dc.id})`;
+    dependents.appendChild(el);
+  });
+} else {
+  const none = document.createElement('div');
+  none.className = 'small-muted';
+  none.innerText = 'No companies depend on this one.';
+  dependents.appendChild(none);
+}
+  const prods = document.getElementById('companyProducts'); prods.innerHTML='';
+  (comp.products||[]).forEach(p=>{ const el = document.createElement('div'); el.className='chip'; el.innerText=p; prods.appendChild(el); });
+  document.getElementById('companyFinances').innerText = comp.finances ? `Latest cash: $${(comp.finances[comp.finances.length-1]||{}).cash || '—'}` : '—';
+  document.getElementById('companyCapacity').innerText = comp.capacity || '—';
+  document.getElementById('companyTier').innerText = comp.tier || '—';
+
+  // set default filter range to last 90 days
+  const end = new Date();
+  const start = new Date(); start.setDate(end.getDate()-90);
+  document.getElementById('filterStart').value = start.toISOString().slice(0,10);
+  document.getElementById('filterEnd').value = end.toISOString().slice(0,10);
+
+  applyFilters();
+  logActivity(`Opened ${comp.name}`);
+}
+
+/* ---------- Company edit ---------- */
+function openEditCompany(id){
+  document.getElementById('modalCompany').style.display='flex';
+  const isNew = !id;
+  let comp = { id:`C-${Math.floor(Math.random()*900)+100}`, name:'', type:'Manufacturer', tier:'', address:'', capacity:'', finances:[], dependencies:[], products:[], transactions:[] };
+  if(!isNew){
+    comp = companies.find(c=>c.id===id);
+  }
+  // fill fields
+  document.getElementById('editName').value = comp.name || '';
+  document.getElementById('editType').value = comp.type || 'Manufacturer';
+  document.getElementById('editTier').value = comp.tier || '';
+  document.getElementById('editAddress').value = comp.address || '';
+  document.getElementById('editCapacity').value = comp.capacity || '';
+  document.getElementById('editFinancial').value = comp.finances && comp.finances.length ? comp.finances[comp.finances.length-1].cash : '';
+  document.getElementById('editDependencies').value = (comp.dependencies||[]).join(', ');
+  document.getElementById('editProducts').value = (comp.products||[]).join(', ');
+  // store editing id on modal
+  document.getElementById('modalCompany').dataset.editId = comp.id;
+}
+
+function closeModalIfBackdrop(e, id){
+  if(e.target.id === id) closeModal(id);
+}
+function closeModal(id){
+  document.getElementById(id).style.display='none';
+}
+
+function saveCompany(){
+  const id = document.getElementById('modalCompany').dataset.editId;
+  const name = document.getElementById('editName').value.trim();
+  if(!name){ alert('Please provide a company name'); return; }
+  const type = document.getElementById('editType').value;
+  const tier = document.getElementById('editTier').value;
+  const addr = document.getElementById('editAddress').value;
+  const cap = document.getElementById('editCapacity').value;
+  const fin = document.getElementById('editFinancial').value;
+  const deps = document.getElementById('editDependencies').value.split(',').map(s=>s.trim()).filter(x=>x);
+  const prods = document.getElementById('editProducts').value.split(',').map(s=>s.trim()).filter(x=>x);
+
+  // find if exists
+  const idx = companies.findIndex(c=>c.id===id);
+  if(idx >= 0){
+    // update
+    companies[idx].name = name;
+    companies[idx].type = type;
+    companies[idx].tier = tier;
+    companies[idx].address = addr;
+    companies[idx].capacity = cap;
+    companies[idx].dependencies = deps;
+    companies[idx].products = prods;
+    if(fin){
+      // append monthly snapshot based on current date if finance changed (simple)
+      const dt = new Date().toISOString().slice(0,10);
+      companies[idx].finances = companies[idx].finances || [];
+      companies[idx].finances.push({date:dt, cash: Number(fin)});
     }
+    logActivity(`Saved company ${companies[idx].name}`);
+  } else {
+    // new company
+    const newC = { id, name, type, tier, address:addr, capacity:cap, finances: fin ? [{date:new Date().toISOString().slice(0,10), cash:Number(fin)}] : [], dependencies:deps, products:prods, transactions:[] };
+    companies.push(newC);
+    logActivity(`Created company ${name}`);
+  }
 
-    function saveNewCompany() {
-      const name = document.getElementById("newName").value.trim();
-      if (!name) return alert("Please enter a company name.");
+  // persist & re-render
+  localStorage.setItem('scm_companies', JSON.stringify(companies));
+  renderCompanyList(document.getElementById('companySearch').value || '');
+  closeModal('modalCompany');
 
-      const id = name.toLowerCase().replace(/\s+/g, "");
-      companies[id] = {
-        name,
-        address: document.getElementById("newAddress").value,
-        tier: document.getElementById("newTier").value,
-        financial: document.getElementById("newFinancial").value,
-        capacity: document.getElementById("newCapacity").value,
-        dependence: [],
-        dependents: [],
-        products: [],
-        transactions: [],
-        kpi: {
-          ot: "N/A",
-          delay: "N/A",
-          health: "N/A",
-          trend: { ot: [], delay: [], health: [] }
-        }
-      };
+  // if currentCompany was this company, refresh detail
+  if(currentCompany && currentCompany.id === id){
+    selectCompany(id);
+  }
+}
 
-      const select = document.getElementById("companySelect");
-      const option = document.createElement("option");
-      option.value = id;
-      option.textContent = name;
-      select.appendChild(option);
+/* Export demo: simple JSON download */
+function downloadCompany(){
+  if(!currentCompany) return alert('No company selected');
+  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(currentCompany,null,2));
+  const dl = document.createElement('a');
+  dl.setAttribute('href', dataStr);
+  dl.setAttribute('download', currentCompany.id + '-' + currentCompany.name.replace(/\s+/g,'_') + '.json');
+  document.body.appendChild(dl);
+  dl.click();
+  dl.remove();
+}
 
-      alert(`✅ ${name} added successfully!`);
-      toggleAddCompany();
+/* ---------- Transactions handling (now also stored on company object) ---------- */
+function openTransactionModal(id){
+  if(!currentCompany) return alert('Please select a company first.');
+  document.getElementById('modalTransaction').style.display='flex';
+  document.getElementById('modalTransaction').dataset.editId = id || '';
+  document.getElementById('transModalTitle').innerText = id ? 'Edit Transaction' : `Add Transaction — ${currentCompany.name}`;
+  if(id){
+    const t = transactions.find(x=>x.id===id) || (currentCompany.transactions||[]).find(x=>x.id===id);
+    if(t){
+      document.getElementById('transType').value = t.type;
+      document.getElementById('transDate').value = t.date || '';
+      document.getElementById('transExpected').value = t.expected || '';
+      document.getElementById('transActual').value = t.actual || '';
+      document.getElementById('transQty').value = t.qty || 0;
+      document.getElementById('transProduct').value = t.product || '';
+      document.getElementById('transNotes').value = t.notes || '';
     }
+  } else {
+    // defaults
+    document.getElementById('transType').value = 'Shipping';
+    document.getElementById('transDate').value = new Date().toISOString().slice(0,10);
+    document.getElementById('transExpected').value = '';
+    document.getElementById('transActual').value = '';
+    document.getElementById('transQty').value = 0;
+    document.getElementById('transProduct').value = '';
+    document.getElementById('transNotes').value = '';
+  }
+}
 
-    function loadCompanyInfo() {
-      const val = document.getElementById("companySelect").value;
-      if (!val) return;
-      const c = companies[val];
+function saveTransaction(){
+  const id = document.getElementById('modalTransaction').dataset.editId;
+  const ttype = document.getElementById('transType').value;
+  const date = document.getElementById('transDate').value;
+  const expected = document.getElementById('transExpected').value || null;
+  const actual = document.getElementById('transActual').value || null;
+  const qty = Number(document.getElementById('transQty').value);
+  const product = document.getElementById('transProduct').value;
+  const notes = document.getElementById('transNotes').value;
+  if(!currentCompany) return alert('Please select a company first.');
+  if(!date) return alert('Provide a transaction date');
+  if(!product) return alert('Provide a product');
 
-      document.getElementById("address").textContent = c.address;
-      document.getElementById("tier").textContent = c.tier;
-      document.getElementById("financial").textContent = c.financial;
-      document.getElementById("capacity").textContent = c.capacity;
-
-      document.getElementById("dependenceList").innerHTML = c.dependence.map(d => `<li>${d}</li>`).join('');
-      document.getElementById("dependentsList").innerHTML = c.dependents.map(d => `<li>${d}</li>`).join('');
-
-      document.getElementById("productList").innerHTML = c.products.map(p => `<div class='column'><span>${p}</span></div>`).join('');
-
-      const tbody = document.querySelector("#transactionTable tbody");
-      tbody.innerHTML = "";
-      c.transactions.forEach(tr => {
-        const row = `<tr>
-          <td>${tr.date}</td>
-          <td>${tr.ship}</td>
-          <td>${tr.recv}</td>
-          <td>${tr.volume}</td>
-          <td>${tr.status}</td>
-        </tr>`;
-        tbody.innerHTML += row;
-      });
-
-      document.getElementById("otRate").textContent = c.kpi.ot;
-      document.getElementById("avgDelay").textContent = c.kpi.delay;
-      document.getElementById("finHealth").textContent = c.kpi.health;
-
-      const ctx = document.getElementById("kpiChart").getContext("2d");
-      if (chart) chart.destroy();
-      chart = new Chart(ctx, {
-        type: "line",
-        data: {
-          labels: ["Week 1", "Week 2", "Week 3", "Week 4"],
-          datasets: [
-            {
-              label: "On-time Delivery Rate (%)",
-              data: c.kpi.trend.ot,
-              borderColor: "#007bff",
-              fill: false,
-              tension: 0.3
-            },
-            {
-              label: "Avg Delay (days)",
-              data: c.kpi.trend.delay,
-              borderColor: "#28a745",
-              fill: false,
-              tension: 0.3
-            },
-            {
-              label: "Financial Health Score",
-              data: c.kpi.trend.health,
-              borderColor: "#ffc107",
-              fill: false,
-              tension: 0.3
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          scales: { y: { beginAtZero: true } }
-        }
-      });
+  if(id){
+    // edit existing
+    const idx = transactions.findIndex(t=>t.id===id);
+    if(idx>=0){
+      transactions[idx] = {...transactions[idx], type:ttype, date, expected, actual, qty, product, notes};
     }
-  </script>
+    // update within company.transactions
+    const idxc = currentCompany.transactions.findIndex(t=>t.id===id);
+    if(idxc>=0){
+      currentCompany.transactions[idxc] = {...currentCompany.transactions[idxc], type:ttype, date, expected, actual, qty, product, notes};
+    } else {
+      // if company didn't have it for some reason, push
+      currentCompany.transactions.push({ id, companyId: currentCompany.id, type:ttype, date, expected, actual, qty, product, notes });
+    }
+    logActivity(`Edited transaction ${id} for ${currentCompany.name}`);
+  } else {
+    // new transaction id
+    const newId = 'T-'+(Math.floor(Math.random()*9000)+100);
+    const t = { id:newId, companyId: currentCompany.id, type:ttype, date, expected: expected, actual: actual, qty, product, notes };
+    transactions.push(t);
+    currentCompany.transactions = currentCompany.transactions || [];
+    currentCompany.transactions.push(t);
+    logActivity(`Added transaction ${newId} for ${currentCompany.name}`);
+  }
+
+  // persist both arrays
+  localStorage.setItem('scm_transactions', JSON.stringify(transactions));
+  localStorage.setItem('scm_companies', JSON.stringify(companies));
+
+  closeModal('modalTransaction');
+  applyFilters();
+}
+
+/* Filters and rendering lists (transactions separate by type) */
+function applyFilters(){
+  if(!currentCompany) return alert('Select a company first');
+  const start = document.getElementById('filterStart').value;
+  const end = document.getElementById('filterEnd').value;
+  const s = start ? new Date(start) : new Date('1970-01-01');
+  const e = end ? new Date(end) : new Date();
+
+  // filter transactions for selected company (prefer company.transactions if present)
+  const source = (currentCompany.transactions && currentCompany.transactions.length) ? currentCompany.transactions : transactions.filter(t => t.companyId === currentCompany.id);
+  const t = source.filter(x => x.companyId === currentCompany.id)
+                        .filter(x => {
+                          const dt = new Date(x.date);
+                          return dt >= s && dt <= new Date(e.getFullYear(),e.getMonth(),e.getDate(),23,59,59);
+                        }).sort((a,b)=> new Date(b.date)-new Date(a.date));
+
+  renderTransactionLists(t);
+  computeKPIs(t, s, e);         // update KPI chart / chips for this filtered set
+  renderDisruptions(currentCompany.id, s, e);  // update disruption list
+  renderDisruptionHistogram(currentCompany.id); // update histogram (past 12 months)
+}
+
+function clearFilters(){
+  if(!currentCompany) return;
+  document.getElementById('filterStart').value = '';
+  document.getElementById('filterEnd').value = '';
+  applyFilters();
+}
+
+function renderTransactionLists(list){
+  const shipping = document.getElementById('transShipping');
+  const receiving = document.getElementById('transReceiving');
+  const adjustments = document.getElementById('transAdjustments');
+  shipping.innerHTML=''; receiving.innerHTML=''; adjustments.innerHTML='';
+
+  list.forEach(tr => {
+    const el = document.createElement('div');
+    el.className='trans-item';
+    el.innerHTML = `<div>
+                      <div style="font-weight:600">${tr.product} · ${tr.qty}</div>
+                      <div class="small-muted">${tr.id} · ${formatDate(tr.date)} · ${tr.expected ? 'ETA: ' + formatDate(tr.expected) : ''}${tr.actual ? ' · ACT: ' + formatDate(tr.actual) : ''}</div>
+                    </div>
+                    <div style="text-align:right">
+                      <div class="small-muted">${tr.notes||''}</div>
+                      <div style="margin-top:8px;display:flex;gap:6px;justify-content:flex-end">
+                        <button class="btn ghost" onclick="event.stopPropagation(); openTransactionModal('${tr.id}')">Edit</button>
+                        <button class="btn" onclick="event.stopPropagation(); deleteTransaction('${tr.id}')">Delete</button>
+                      </div>
+                    </div>`;
+    if(tr.type === 'Shipping') shipping.appendChild(el);
+    else if(tr.type === 'Receiving') receiving.appendChild(el);
+    else adjustments.appendChild(el);
+  });
+
+  if(shipping.children.length===0) shipping.innerHTML = `<div class="small-muted">No shipping transactions in range</div>`;
+  if(receiving.children.length===0) receiving.innerHTML = `<div class="small-muted">No receiving transactions in range</div>`;
+  if(adjustments.children.length===0) adjustments.innerHTML = `<div class="small-muted">No adjustments in range</div>`;
+}
+
+function deleteTransaction(id){
+  if(!confirm('Delete this transaction?')) return;
+  // remove from global transactions
+  const idx = transactions.findIndex(t=>t.id===id);
+  if(idx>=0){
+    transactions.splice(idx,1);
+  }
+  // remove from company.transactions arrays
+  companies.forEach(c=>{
+    if(c.transactions){
+      const i = c.transactions.findIndex(t=>t.id===id);
+      if(i>=0) c.transactions.splice(i,1);
+    }
+  });
+  // persist
+  localStorage.setItem('scm_transactions', JSON.stringify(transactions));
+  localStorage.setItem('scm_companies', JSON.stringify(companies));
+  logActivity(`Deleted ${id}`);
+  applyFilters();
+}
+
+/* ---------- Disruptions (list + histogram) ---------- */
+function renderDisruptions(companyId, start, end){
+  const el = document.getElementById('disruptList');
+  el.innerHTML='';
+  const list = disruptions.filter(d => d.companyId === companyId)
+                         .filter(d => {
+                           if(!start || !end) return true;
+                           const dt = new Date(d.date);
+                           return dt >= start && dt <= new Date(end.getFullYear(),end.getMonth(),end.getDate(),23,59,59);
+                         }).sort((a,b)=> new Date(b.date) - new Date(a.date));
+  if(list.length===0){
+    el.innerHTML = `<div class="small-muted">No disruptions in range</div>`;
+    return;
+  }
+  list.forEach(d=>{
+    const node = document.createElement('div');
+    node.style.padding='8px';
+    node.style.borderBottom='1px dashed rgba(255,255,255,0.04)';
+    node.innerHTML = `<div style="font-weight:600">${d.severity} · ${formatDate(d.date)}</div>
+                      <div class="small-muted" style="margin-top:6px">${d.description}</div>`;
+    el.appendChild(node);
+  });
+}
+
+function renderDisruptionHistogram(companyId){
+  // Build counts for past 12 months
+  const now = new Date();
+  const labels = [];
+  const counts = [];
+  for(let i=11;i>=0;i--){
+    labels.push(monthsBackLabel(i, now));
+    counts.push(0);
+  }
+  disruptions.filter(d=>d.companyId===companyId).forEach(d=>{
+    const dt = new Date(d.date);
+    const key = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`;
+    const idx = labels.indexOf(key);
+    if(idx !== -1) counts[idx] += 1;
+  });
+
+  // create or update chart
+  const ctx = document.getElementById('disruptHist').getContext('2d');
+  if(disruptChart) {
+    disruptChart.data.labels = labels;
+    disruptChart.data.datasets[0].data = counts;
+    disruptChart.update();
+  } else {
+    disruptChart = new Chart(ctx, {
+      type:'bar',
+      data:{
+        labels: labels,
+        datasets:[
+          { label:'Disruptions', data: counts, backgroundColor:'rgba(234,88,12,0.9)' }
+        ]
+      },
+      options:{
+        maintainAspectRatio:false,
+        plugins:{legend:{display:false}},
+        scales:{ y:{ beginAtZero:true, ticks:{precision:0} } }
+      }
+    });
+  }
+}
+
+/* ---------- KPI computations + chart ---------- */
+/*
+   - On-time delivery: percentage of transactions with expected & actual where actual <= expected
+   - Avg Delay (in days): mean(actual - expected), compute only where both dates exist
+   - Std Dev of delay
+   - Financial trend: use monthly finances from company.finances (past 12 months)
+*/
+function computeKPIs(tList, start, end){
+  // Use past 12 months only
+  const now = new Date();
+  const cutoff = new Date(now);
+  cutoff.setFullYear(now.getFullYear() - 1);
+
+  // Filter deliveries with promised + actual dates
+  const deliveries = tList.filter(x => x.expected && x.actual);
+  let onTimeCount = 0, delays = [];
+
+  deliveries.forEach(d=>{
+    const exp = new Date(d.expected);
+    const act = new Date(d.actual);
+    const diff = (act - exp)/(1000*60*60*24);
+    delays.push(diff);
+    if(diff <= 0) onTimeCount++;
+  });
+
+  const onTimeRate = deliveries.length ? (onTimeCount/deliveries.length)*100 : null;
+  const avgDelay = delays.length ? delays.reduce((a,b)=>a+b,0)/delays.length : null;
+  const stdDelay = delays.length ? Math.sqrt(delays.map(x=> (x-avgDelay)**2).reduce((a,b)=>a+b)/delays.length) : null;
+
+  // Display numeric KPI metrics
+  document.getElementById('kpiOnTime').innerText = onTimeRate ? onTimeRate.toFixed(1)+'%' : '—';
+  document.getElementById('kpiAvgDelay').innerText = avgDelay ? avgDelay.toFixed(2) : '—';
+  document.getElementById('kpiStdDelay').innerText = stdDelay ? stdDelay.toFixed(2) : '—';
+
+  // Financial trend: only past 12 months
+  const fin = (currentCompany.finances||[])
+    .filter(f => new Date(f.date) >= cutoff)
+    .sort((a,b)=> new Date(a.date)-new Date(b.date));
+
+  const finLabels = fin.map(f=>f.date);
+  const finValues = fin.map(f=>f.cash);
+
+  // KPI month buckets
+  const monthLabels = [];
+  const onTimeSeries = [];
+  const avgDelaySeries = [];
+
+  for(let i=0;i<12;i++){
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    const key = d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,'0');
+    monthLabels.unshift(key);
+
+    const mDeliveries = deliveries.filter(x=>{
+      const dt = new Date(x.date);
+      return dt.getFullYear()===d.getFullYear() && dt.getMonth()===d.getMonth();
+    });
+
+    if(mDeliveries.length){
+      const mDelays = mDeliveries.map(x=>(new Date(x.actual)-new Date(x.expected))/(1000*60*60*24));
+      onTimeSeries.unshift((mDelays.filter(x=>x<=0).length/mDelays.length)*100);
+      avgDelaySeries.unshift(mDelays.reduce((a,b)=>a+b,0)/mDelays.length);
+    } else {
+      onTimeSeries.unshift(null);
+      avgDelaySeries.unshift(null);
+    }
+  }
+
+  updateKPIChart(monthLabels, onTimeSeries, avgDelaySeries, finLabels, finValues);
+  updateDisruptHistogram(currentCompany.id);
+}
+
+
+function createChart(){
+  const ctx = document.getElementById('kpiChart').getContext('2d');
+  kpiChart = new Chart(ctx, {
+    type:'line',
+    data:{
+      labels: [],
+      datasets: [
+        { label:'On-time %', data:[], borderColor:'rgba(37,99,235,0.9)', backgroundColor:'rgba(37,99,235,0.06)', tension:0.3, yAxisID:'y' },
+        { label:'Avg Delay (days)', data:[], borderColor:'rgba(59,130,246,0.8)', backgroundColor:'rgba(59,130,246,0.06)', tension:0.3, yAxisID:'y' },
+        { label:'Financial Health (cash)', data:[], borderColor:'rgba(99,102,241,0.9)', backgroundColor:'rgba(99,102,241,0.04)', tension:0.3, yAxisID:'y2' }
+      ]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      stacked:false,
+      scales:{
+        y:{ type:'linear', position:'left', ticks:{callback: v => v}, title:{display:true,text:''} },
+        y2:{ type:'linear', position:'right', grid:{display:false}, ticks:{callback: v => v}, title:{display:true,text:''} }
+      },
+      plugins:{
+        legend:{display:false},
+        tooltip:{mode:'index'}
+      }
+    }
+  });
+}
+
+function updateKPIChart(monthLabels, onTimeData, avgDelayData, finLabels, finValues){
+  if(!kpiChart) createChart();
+
+  kpiChart.data.labels = monthLabels;
+  kpiChart.data.datasets[0].data = onTimeData;
+  kpiChart.data.datasets[1].data = avgDelayData;
+
+  // Map financial values to same x-axis months
+  kpiChart.data.datasets[2].data = monthLabels.map(m=>{
+    const match = finLabels.findIndex(f=>f.startsWith(m));
+    return match>=0 ? finValues[match] : null;
+  });
+
+  kpiChart.options.scales.y.suggestedMin = 0;
+  kpiChart.options.scales.y.suggestedMax = 100;
+  kpiChart.update();
+}
+
+function toggleDataset(cb){
+  const key = cb.dataset.key;
+  if(!kpiChart) return;
+  if(key === 'onTime') kpiChart.data.datasets[0].hidden = !cb.checked;
+  if(key === 'avgDelay') kpiChart.data.datasets[1].hidden = !cb.checked;
+  if(key === 'fin') kpiChart.data.datasets[2].hidden = !cb.checked;
+  kpiChart.update();
+}
+
+/* ---------- Tabs ---------- */
+function showTab(tab){
+  const kpiCard = document.getElementById('kpiCard');
+  const txCard = document.getElementById('txCard');
+  const tabKPIs = document.getElementById('tabKPIs');
+  const tabTx = document.getElementById('tabTx');
+  if(tab === 'kpis'){
+    kpiCard.style.display = 'block';
+    txCard.style.display = 'none';
+    tabKPIs.classList.add('active');
+    tabTx.classList.remove('active');
+  } else {
+    kpiCard.style.display = 'none';
+    txCard.style.display = 'block';
+    tabKPIs.classList.remove('active');
+    tabTx.classList.add('active');
+  }
+}
+
+/* ---------- Activity logging ---------- */
+function logActivity(msg){
+  const t = new Date().toLocaleString();
+  activityLog.unshift(`${t} — ${msg}`);
+  if(activityLog.length>10) activityLog.length=10;
+  document.getElementById('activityLog').innerHTML = activityLog.slice(0,6).map(x=>`<div>${x}</div>`).join('');
+}
+
+/* ---------- Exports and small helpers ---------- */
+function exportKPIs(){
+  if(!currentCompany) return alert('Select a company first.');
+  const payload = {
+    company: currentCompany.id,
+    timestamp: new Date().toISOString(),
+    kpi: {
+      onTime: document.getElementById('kpiOnTime').innerText,
+      avgDelay: document.getElementById('kpiAvgDelay').innerText,
+      stdDelay: document.getElementById('kpiStdDelay').innerText
+    }
+  };
+  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload,null,2));
+  const dl = document.createElement('a');
+  dl.setAttribute('href', dataStr);
+  dl.setAttribute('download', `${currentCompany.id}_kpi_snapshot.json`);
+  document.body.appendChild(dl);
+  dl.click();
+  dl.remove();
+}
+
+/* ---------- Bootstrap ---------- */
+function bootstrap(){
+  initDemoData();
+  renderCompanyList();
+  createChart();
+  // auto-select first company for convenience
+  if(companies.length) selectCompany(companies[0].id);
+  // initial disruption histogram for first company
+  if(companies.length) renderDisruptionHistogram(companies[0].id);
+}
+
+bootstrap();
+</script>
 </body>
 </html>
+
 
 
 
