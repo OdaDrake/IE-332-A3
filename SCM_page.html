@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Supply Chain Management Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      margin: 0;
+      background-color: #f8f9fa;
+      color: #fff;
+    }
+
+    header {
+      background-color: #000;
+      text-align: center;
+      padding: 15px;
+      font-size: 1.8rem;
+      font-weight: 600;
+      color: #fff;
+      letter-spacing: 1px;
+    }
+
+    .card {
+      background-color: #2f2f2f;
+      border-radius: 12px;
+      padding: 20px;
+      margin: 20px auto;
+      width: 85%;
+      box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.3);
+    }
+
+    h2, h3 {
+      color: #fff;
+    }
+
+    label {
+      color: #ccc;
+      font-weight: 600;
+    }
+
+    select, input, button {
+      border: none;
+      border-radius: 6px;
+      padding: 8px;
+      margin: 5px;
+    }
+
+    select, input {
+      width: 250px;
+    }
+
+    button {
+      background-color: #007bff;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      color: #ddd;
+      margin-top: 10px;
+    }
+
+    th, td {
+      border-bottom: 1px solid #444;
+      padding: 10px;
+      text-align: center;
+    }
+
+    .flex {
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }
+
+    .column {
+      flex: 1;
+      margin: 10px;
+      min-width: 250px;
+    }
+
+    canvas {
+      background-color: #222;
+      border-radius: 10px;
+      padding: 10px;
+    }
+
+    .divider {
+      border-top: 2px solid #444;
+      margin: 20px 0;
+    }
+
+    .addCompanyForm {
+      margin-top: 10px;
+      display: none;
+    }
+
+  </style>
+</head>
+<body>
+  <header>Supply Chain Management Dashboard</header>
+
+  <div class="card">
+    <h2>Company Info</h2>
+
+    <!-- Company Selector -->
+    <div>
+      <label>Select Existing Company:</label>
+      <select id="companySelect" onchange="loadCompanyInfo()">
+        <option value="">-- Choose a Company --</option>
+        <option value="alpha">Alpha Inc</option>
+        <option value="beta">Beta LLC</option>
+        <option value="gamma">Gamma Co</option>
+      </select>
+    </div>
+
+    <!-- Add Company Button -->
+    <div style="margin-top:15px;">
+      <button onclick="toggleAddCompany()">➕ Add New Company</button>
+    </div>
+
+    <!-- Add Company Form -->
+    <div class="addCompanyForm" id="addCompanyForm">
+      <h3>Add a New Company</h3>
+      <input id="newName" placeholder="Company Name" /><br>
+      <input id="newAddress" placeholder="Address" /><br>
+      <input id="newTier" placeholder="Tier Level" /><br>
+      <input id="newFinancial" placeholder="Financial Status" /><br>
+      <input id="newCapacity" placeholder="Capacity" /><br>
+      <button onclick="saveNewCompany()">Save Company</button>
+    </div>
+
+    <!-- Company Details -->
+    <div id="companyDetails" style="margin-top:15px;">
+      <div class="flex">
+        <div class="column"><label>Address:</label><br><span id="address"></span></div>
+        <div class="column"><label>Tier Level:</label><br><span id="tier"></span></div>
+        <div class="column"><label>Financial Status:</label><br><span id="financial"></span></div>
+        <div class="column"><label>Capacity:</label><br><span id="capacity"></span></div>
+      </div>
+      <div class="flex">
+        <div class="column"><label>Dependence:</label><br><ul id="dependenceList"></ul></div>
+        <div class="column"><label>Dependents:</label><br><ul id="dependentsList"></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Products</h3>
+    <div class="flex" id="productList"></div>
+  </div>
+
+  <div class="card">
+    <h3>Transactions</h3>
+    <table id="transactionTable">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Shipping From</th>
+          <th>Receiving To</th>
+          <th>Volume</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Key Performance Indicators</h3>
+    <div class="flex">
+      <div>
+        <label>Start Date:</label><br>
+        <input type="date" id="startDate">
+      </div>
+      <div>
+        <label>End Date:</label><br>
+        <input type="date" id="endDate">
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="flex">
+      <div class="column"><label>On-time Delivery Rate:</label><br><span id="otRate"></span></div>
+      <div class="column"><label>Average Delay:</label><br><span id="avgDelay"></span></div>
+      <div class="column"><label>Financial Health:</label><br><span id="finHealth"></span></div>
+    </div>
+
+    <div class="divider"></div>
+    <canvas id="kpiChart" height="120"></canvas>
+  </div>
+
+  <script>
+    const companies = {
+      alpha: {
+        name: "Alpha Inc",
+        address: "123 Main St, Dallas, TX",
+        tier: "Tier 1",
+        financial: "Stable",
+        capacity: "1200 units/day",
+        dependence: ["SteelCorp", "ChemPro"],
+        dependents: ["LogiMax", "PetroChain"],
+        products: ["Lubricant A", "Fuel B", "Additive X"],
+        transactions: [
+          { date: "2025-10-31", ship: "Dallas", recv: "Houston", volume: 450, status: "Completed" },
+          { date: "2025-11-02", ship: "Dallas", recv: "Austin", volume: 350, status: "In Transit" },
+        ],
+        kpi: {
+          ot: "94%",
+          delay: "2.1 days",
+          health: "Good",
+          trend: {
+            ot: [90, 94, 95, 92],
+            delay: [3.1, 2.5, 2.2, 2.1],
+            health: [85, 90, 93, 95],
+          }
+        }
+      },
+      beta: {
+        name: "Beta LLC",
+        address: "567 Industrial Rd, Denver, CO",
+        tier: "Tier 2",
+        financial: "Moderate Risk",
+        capacity: "900 units/day",
+        dependence: ["Alpha Inc"],
+        dependents: ["Gamma Co"],
+        products: ["Resin C", "Adhesive D"],
+        transactions: [
+          { date: "2025-10-29", ship: "Denver", recv: "Chicago", volume: 320, status: "Completed" },
+          { date: "2025-11-01", ship: "Denver", recv: "Omaha", volume: 250, status: "Delayed" },
+        ],
+        kpi: {
+          ot: "87%",
+          delay: "3.5 days",
+          health: "Fair",
+          trend: {
+            ot: [80, 85, 88, 87],
+            delay: [4.5, 3.9, 3.8, 3.5],
+            health: [70, 75, 78, 80],
+          }
+        }
+      },
+      gamma: {
+        name: "Gamma Co",
+        address: "890 Harbor Ln, Seattle, WA",
+        tier: "Tier 3",
+        financial: "Weak",
+        capacity: "600 units/day",
+        dependence: ["Beta LLC"],
+        dependents: [],
+        products: ["Component E", "Material F"],
+        transactions: [
+          { date: "2025-10-30", ship: "Seattle", recv: "Portland", volume: 280, status: "Completed" },
+        ],
+        kpi: {
+          ot: "78%",
+          delay: "4.8 days",
+          health: "Poor",
+          trend: {
+            ot: [70, 75, 78, 77],
+            delay: [6, 5.5, 5, 4.8],
+            health: [60, 65, 68, 70],
+          }
+        }
+      }
+    };
+
+    let chart;
+
+    function toggleAddCompany() {
+      const form = document.getElementById("addCompanyForm");
+      form.style.display = form.style.display === "none" ? "block" : "none";
+    }
+
+    function saveNewCompany() {
+      const name = document.getElementById("newName").value.trim();
+      if (!name) return alert("Please enter a company name.");
+
+      const id = name.toLowerCase().replace(/\s+/g, "");
+      companies[id] = {
+        name,
+        address: document.getElementById("newAddress").value,
+        tier: document.getElementById("newTier").value,
+        financial: document.getElementById("newFinancial").value,
+        capacity: document.getElementById("newCapacity").value,
+        dependence: [],
+        dependents: [],
+        products: [],
+        transactions: [],
+        kpi: {
+          ot: "N/A",
+          delay: "N/A",
+          health: "N/A",
+          trend: { ot: [], delay: [], health: [] }
+        }
+      };
+
+      const select = document.getElementById("companySelect");
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = name;
+      select.appendChild(option);
+
+      alert(`✅ ${name} added successfully!`);
+      toggleAddCompany();
+    }
+
+    function loadCompanyInfo() {
+      const val = document.getElementById("companySelect").value;
+      if (!val) return;
+      const c = companies[val];
+
+      document.getElementById("address").textContent = c.address;
+      document.getElementById("tier").textContent = c.tier;
+      document.getElementById("financial").textContent = c.financial;
+      document.getElementById("capacity").textContent = c.capacity;
+
+      document.getElementById("dependenceList").innerHTML = c.dependence.map(d => `<li>${d}</li>`).join('');
+      document.getElementById("dependentsList").innerHTML = c.dependents.map(d => `<li>${d}</li>`).join('');
+
+      document.getElementById("productList").innerHTML = c.products.map(p => `<div class='column'><span>${p}</span></div>`).join('');
+
+      const tbody = document.querySelector("#transactionTable tbody");
+      tbody.innerHTML = "";
+      c.transactions.forEach(tr => {
+        const row = `<tr>
+          <td>${tr.date}</td>
+          <td>${tr.ship}</td>
+          <td>${tr.recv}</td>
+          <td>${tr.volume}</td>
+          <td>${tr.status}</td>
+        </tr>`;
+        tbody.innerHTML += row;
+      });
+
+      document.getElementById("otRate").textContent = c.kpi.ot;
+      document.getElementById("avgDelay").textContent = c.kpi.delay;
+      document.getElementById("finHealth").textContent = c.kpi.health;
+
+      const ctx = document.getElementById("kpiChart").getContext("2d");
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: ["Week 1", "Week 2", "Week 3", "Week 4"],
+          datasets: [
+            {
+              label: "On-time Delivery Rate (%)",
+              data: c.kpi.trend.ot,
+              borderColor: "#007bff",
+              fill: false,
+              tension: 0.3
+            },
+            {
+              label: "Avg Delay (days)",
+              data: c.kpi.trend.delay,
+              borderColor: "#28a745",
+              fill: false,
+              tension: 0.3
+            },
+            {
+              label: "Financial Health Score",
+              data: c.kpi.trend.health,
+              borderColor: "#ffc107",
+              fill: false,
+              tension: 0.3
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+    }
+  </script>
+</body>
+</html>
+
+
+
+
