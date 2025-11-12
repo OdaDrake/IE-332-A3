@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Senior Manager Module</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      margin: 0;
+      background-color: #f8f9fa;
+      color: #fff;
+    }
+
+    header {
+      background-color: #000;
+      text-align: center;
+      padding: 15px;
+      font-size: 1.8rem;
+      font-weight: 600;
+    }
+
+    .card {
+      background-color: #2f2f2f;
+      border-radius: 12px;
+      padding: 20px;
+      margin: 20px auto;
+      width: 85%;
+      box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.3);
+    }
+
+    h2, h3 {
+      color: #fff;
+    }
+
+    label {
+      color: #ccc;
+      font-weight: 600;
+    }
+
+    select, input, button {
+      border: none;
+      border-radius: 6px;
+      padding: 8px;
+      margin: 5px;
+    }
+
+    button {
+      background-color: #007bff;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    canvas {
+      background-color: #222;
+      border-radius: 10px;
+      padding: 10px;
+      width: 100%;
+    }
+
+    .three-charts {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .three-charts canvas {
+      flex: 1;
+      min-width: 300px;
+      height: 220px;
+    }
+
+    .heatmap-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 15px;
+      margin-top: 20px;
+    }
+
+    .continent {
+      text-align: center;
+    }
+
+    .continent div {
+      background-color: #222;
+      border-radius: 10px;
+      height: 150px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #888;
+    }
+
+    details {
+      margin: 5px 0;
+    }
+
+    summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: #00b4d8;
+    }
+
+    /* Make line chart smaller */
+    #disruptionFrequencyChart {
+      height: 160px !important;
+    }
+  </style>
+</head>
+<body>
+  <header>Senior Manager Dashboard</header>
+
+  <!-- Add Company Button -->
+  <div class="card">
+    <h2>Company Management</h2>
+    <button onclick="window.location.href='add_company.html'">➕ Add New Company</button>
+  </div>
+
+  <!-- Average Financial Health -->
+  <div class="card">
+    <h2>Average Financial Health by Company Type</h2>
+    <label>Start Date:</label>
+    <input type="date">
+    <label>End Date:</label>
+    <input type="date">
+    <button>Filter</button>
+
+    <div class="three-charts">
+      <canvas id="manufacturerChart"></canvas>
+      <canvas id="distributorChart"></canvas>
+      <canvas id="supplierChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Regional Disruptions -->
+  <div class="card">
+    <h2>Regional Disruptions</h2>
+    <label>Select Company:</label>
+    <select>
+      <option>-- Choose Company --</option>
+      <option>Company A</option>
+      <option>Company B</option>
+      <option>Company C</option>
+    </select>
+
+    <!-- Two rows of three heat maps -->
+    <div class="heatmap-grid">
+      <div class="continent"><h4>North America</h4><div>[Heat Map]</div></div>
+      <div class="continent"><h4>South America</h4><div>[Heat Map]</div></div>
+      <div class="continent"><h4>Europe</h4><div>[Heat Map]</div></div>
+      <div class="continent"><h4>Africa</h4><div>[Heat Map]</div></div>
+      <div class="continent"><h4>Asia</h4><div>[Heat Map]</div></div>
+      <div class="continent"><h4>Australia</h4><div>[Heat Map]</div></div>
+    </div>
+  </div>
+
+  <!-- Most Critical Companies (Horizontal Bar) -->
+  <div class="card">
+    <h2>Most Critical Companies</h2>
+    <canvas id="criticalCompaniesChart"></canvas>
+  </div>
+
+  <!-- Disruption Frequency -->
+  <div class="card">
+    <h2>Disruption Frequency Over Time</h2>
+    <label>Start Date:</label>
+    <input type="date">
+    <label>End Date:</label>
+    <input type="date">
+    <label>Company:</label>
+    <select>
+      <option>-- Select Company --</option>
+      <option>Company A</option>
+      <option>Company B</option>
+    </select>
+    <button>Filter</button>
+    <canvas id="disruptionFrequencyChart"></canvas>
+  </div>
+
+  <!-- Company Financials by Region -->
+  <div class="card">
+    <h2>Company Financials by Region</h2>
+    <details><summary>North America</summary><ul><li>Company A - Financial Info...</li></ul></details>
+    <details><summary>South America</summary><ul><li>Company B - Financial Info...</li></ul></details>
+    <details><summary>Europe</summary><ul><li>Company C - Financial Info...</li></ul></details>
+    <details><summary>Africa</summary><ul><li>Company D - Financial Info...</li></ul></details>
+    <details><summary>Asia</summary><ul><li>Company E - Financial Info...</li></ul></details>
+    <details><summary>Australia</summary><ul><li>Company F - Financial Info...</li></ul></details>
+  </div>
+
+  <!-- Additional Metrics (Horizontal Bar) -->
+  <div class="card">
+    <h2>Additional Metrics</h2>
+    <canvas id="additionalChart"></canvas>
+  </div>
+
+  <!-- Companies Affected by Disruption Event -->
+  <div class="card">
+    <h2>Companies Affected by Disruption Event</h2>
+    <button>Port Strike</button>
+    <button>Factory Fire</button>
+    <button>Truck Delay</button>
+    <button>Power Outage</button>
+    <div style="margin-top: 10px; background: #222; padding: 10px; border-radius: 10px;">[List of affected companies will appear here]</div>
+  </div>
+
+  <!-- Distributor Average (Horizontal Bar) -->
+  <div class="card">
+    <h2>Distributor Average</h2>
+    <canvas id="distributorAverageChart"></canvas>
+  </div>
+
+  <script>
+    // Three charts for company types
+    new Chart(document.getElementById('manufacturerChart'), {
+      type: 'bar',
+      data: { labels: ['Q1', 'Q2', 'Q3', 'Q4'],
+        datasets: [{ label: 'Manufacturers', data: [75, 80, 85, 90], backgroundColor: '#007bff' }] },
+      options: { responsive: true, scales: { y: { beginAtZero: true, max: 100 } } }
+    });
+
+    new Chart(document.getElementById('distributorChart'), {
+      type: 'bar',
+      data: { labels: ['Q1', 'Q2', 'Q3', 'Q4'],
+        datasets: [{ label: 'Distributors', data: [70, 65, 72, 78], backgroundColor: '#ffc107' }] },
+      options: { responsive: true, scales: { y: { beginAtZero: true, max: 100 } } }
+    });
+
+    new Chart(document.getElementById('supplierChart'), {
+      type: 'bar',
+      data: { labels: ['Q1', 'Q2', 'Q3', 'Q4'],
+        datasets: [{ label: 'Suppliers', data: [60, 68, 74, 81], backgroundColor: '#28a745' }] },
+      options: { responsive: true, scales: { y: { beginAtZero: true, max: 100 } } }
+    });
+
+    // Horizontal bar charts (inverted format)
+    const barOpts = {
+      indexAxis: 'y',
+      responsive: true,
+      scales: { x: { beginAtZero: true } }
+    };
+
+    new Chart(document.getElementById('criticalCompaniesChart'), {
+      type: 'bar',
+      data: {
+        labels: ['Company A', 'Company B', 'Company C', 'Company D'],
+        datasets: [{ label: 'Criticality', data: [95, 88, 76, 60], backgroundColor: '#ff6b6b' }]
+      },
+      options: barOpts
+    });
+
+    new Chart(document.getElementById('additionalChart'), {
+      type: 'bar',
+      data: {
+        labels: ['Metric 1', 'Metric 2', 'Metric 3'],
+        datasets: [{ label: 'Value', data: [45, 60, 80], backgroundColor: '#6f42c1' }]
+      },
+      options: barOpts
+    });
+
+    new Chart(document.getElementById('distributorAverageChart'), {
+      type: 'bar',
+      data: {
+        labels: ['Distributor A', 'Distributor B', 'Distributor C'],
+        datasets: [{ label: 'Avg Delay', data: [2, 4, 3], backgroundColor: '#20c997' }]
+      },
+      options: barOpts
+    });
+
+    // Line chart (compressed)
+    new Chart(document.getElementById('disruptionFrequencyChart'), {
+      type: 'line',
+      data: {
+        labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May'],
+        datasets: [{ label: 'Disruptions', data: [3, 5, 4, 6, 2], borderColor: '#00b4d8', fill: false, tension: 0.3 }]
+      },
+      options: { responsive: true, scales: { y: { beginAtZero: true } }, plugins: { legend: { display: false } } }
+    });
+  </script>
+</body>
+</html>
