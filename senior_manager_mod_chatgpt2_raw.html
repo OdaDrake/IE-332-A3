@@ -6,6 +6,22 @@
   <title>Senior Manager Module</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+ <?php
+
+$servername = "mydb.itap.purdue.edu";
+$username = "g1151918";
+$password = "group8ie332";
+$database = $username;
+
+$conn = new mysqli($servername, $username, $password, $database);
+
+if($conn->connect_error) {
+	die("Connection failed: ".$conn->connect_error);
+}
+
+//input sql queries here
+
+?>
   <style>
     body {
       font-family: 'Inter', sans-serif;
@@ -287,3 +303,4 @@
   </script>
 </body>
 </html>
+
