@@ -4,7 +4,22 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Supply Chain Manager Dashboard — Module 1</title>
+<?php
 
+$servername = "mydb.itap.purdue.edu";
+$username = "g1151918";
+$password = "group8ie332";
+$database = $username;
+
+$conn = new mysqli($servername, $username, $password, $database);
+
+if($conn->connect_error) {
+	die("Connection failed: ".$conn->connect_error);
+}
+
+//input sql queries here
+
+?>
   <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -1195,6 +1210,7 @@ bootstrap();
 </script>
 </body>
 </html>
+
 
 
 
