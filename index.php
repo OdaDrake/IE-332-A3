@@ -1,35 +1,36 @@
 <?php
-// Start PHP before any HTML or whitespace
+session_start(); // must be first
+
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+// When the form is submitted:
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-  // Collect form inputs
-  $username = $_POST['username'] ?? '';
-  $password = $_POST['password'] ?? '';
+    $username = isset($_POST['username']) ? $_POST['username'] : '';
+    $password = isset($_POST['password']) ? $_POST['password'] : '';
 
-  // Define credentials
-  $supply_username = 'supply';
-  $supply_password = 'supply123';
+    // Hardcoded login
+    if ($username === 'senior' && $password === 'senior123') {
 
-  $senior_username = 'senior';
-  $senior_password = 'senior123';
+        // Mark user as logged in
+        $_SESSION['logged_in'] = true;
+        $_SESSION['username']  = $username;
 
-  // Validate credentials
-  if ($username === $supply_username && $password === $supply_password) {
-    header('Location: supplychainmanager.php');
-    exit;
-  } elseif ($username === $senior_username && $password === $senior_password) {
-    header('Location: seniormanager.php');
-    exit;
-  } else {
-    echo "<script>alert('Invalid username or password'); window.location.href='index.php';</script>";
-    exit;
-  }
+        header("Location: company_table.php");
+        exit;
+
+    } else {
+        echo "<script>alert('Invalid username or password');</script>";
+    }
 }
 ?>
 
 <html>
   <head>
-    <title>Palantir</title>
+    <title>IE332 Group 8 ERP System</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
   <style>
     .header {
       background-color: #141414;
@@ -99,12 +100,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       color:whitesmoke;
     }
 
-    .square{
+    .square {
       aspect-ratio: 1;
       width: 90%;
       background-color: whitesmoke;
       transition: width 0.2s, height 0.2s;
       transition-timing-function: ease-in-out;
+      border-radius: 12px 6px 12px 6px;
+    }
+
+    .square img {
+      width: 100%;
       border-radius: 12px 6px 12px 6px;
     }
 
@@ -209,7 +215,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       border: none;
       border-radius: 8px;
       background-color: whitesmoke;
-      color: white;
+      color: black;
       font-size: 1rem;
       outline: none;
       transition: all 0.2s ease;
@@ -218,6 +224,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     .login-input:focus {
       background-color: #141414;
       box-shadow: 0 0 0 2px #daaa00;
+      color: white;
     }
 
     button.login_input {
@@ -252,6 +259,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       left: 0;
       width: 100%;
     }
+
+    .dialogue {
+      display: none;
+      position: fixed;
+      width: 60%;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%); /* Centers the modal */
+      
+      background: #ffffff;
+      height: auto;
+      max-height: 70%;
+      padding: 2rem;
+      
+      border-radius: 16px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+
+      color: #222;
+      overflow-y: auto;
+      
+      animation: fadeIn 0.25s ease;
+  }
+
+  .dialogue-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      backdrop-filter: blur(4px);
+  }
+
+  /* Simple fade-in animation */
+  @keyframes fadeIn {
+      from { opacity: 0; transform: translate(-50%, -48%); }
+      to { opacity: 1; transform: translate(-50%, -50%); }
+  }
   </style>
   </head>
 
@@ -264,6 +307,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
   </div>
 
+  <div class="dialogue-backdrop"></div>
+
   <div class="headerspacer">
     <h1>Palantir</h1>
   </div>
@@ -274,10 +319,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           <div class="card">
             <div class="squarewrapper">
               <div class="square">
+                <img src="Jake Getson Headshot.png">
               </div>
             </div>
             <p>Jake Getson</p>
             <underline></underline>
+            <div class="dialogue">Hi I'm Jake!</div>
           </div>
           <div class="card">
             <div class="squarewrapper">
@@ -286,45 +333,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             <p>Alejandro Melendez</p>
             <underline></underline>
+            <div class="dialogue">Hi I'm Alejandro!</div>
           </div>
           <div class="card">
             <div class="squarewrapper">
               <div class="square">
+                <img src="Erin Grudis Headshot.png">
               </div>
             </div>
             <p>Erin Grudis</p>
             <underline></underline>
+            <div class="dialogue">Hi im Erin!</div>
           </div>
           <div class="card">
             <div class="squarewrapper">
-              <!-- <img class="square" src="Oda Drake Headshot.jpg" alt="Headshot of Jack Drake" loading="lazy"> -->
               <div class="square">
+                <img src="Oda Drake Headshot.jpg">
               </div>
             </div>
             <p>Jack Drake</p>
             <underline></underline>
+            <div class="dialogue">Hi im jack</div>
           </div>
           <div class="card">
             <div class="squarewrapper">
               <div class="square">
+                <img src="Calista Martin Headshot.jpg">
               </div>
             </div>
             <p>Calista Martin</p>
             <underline></underline>
+            <div class="dialogue">Hi im Calista</div>
           </div>
           <div class="card">
             <div class="squarewrapper">
               <div class="square">
+                <img src="Jose Cochon Headshot.jpg">
               </div>
             </div>
-            <p>Jose Cochón</p>
+            <p>Jose Cochon</p>
             <underline></underline>
+            <div class="dialogue">Hi im Jose</div>
           </div>
         </div>
       </div>
 
       <!-- Login -->
-      <form action="ENDPOINT" method="post">
+      <form action="index.php" method="post">
         <div id="logincontainer">
           <!-- Title & Logo -->
           <h2>Login</h2>
@@ -337,18 +392,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
       </form>
 
-      <!-- Help circle for bonus points -->
+      <!-- Help circle -->
       <div class="circle">
         ?
       <underline></underline>
       </div>
 
-      <!-- Ask for help circle icon -->
       <footer class="footer">
         <?php echo date("F j, Y"); ?>
       </footer>
+
+  <script>
+    $(document).ready(() => {
+      const $backdrop = $(".dialogue-backdrop");
+
+      $("body").on("click", (event) => {
+        const $target = $(event.target);
+        console.log(event.target);
+
+        // 1) Click on a headshot image → open that person's dialogue + show backdrop
+        if ($target.is(".square img")) {
+          // hide any open dialogues first
+          $(".dialogue").hide();
+
+          // find the dialogue in the same card
+          const $dialogue = $target.closest(".card").children(".dialogue");
+          $dialogue.show();
+
+          // show backdrop
+          $backdrop.show();
+          return;
+        }
+
+        // 2) Click inside an open dialogue → do nothing (keep it open)
+        if ($target.is(".dialogue") || $target.closest(".dialogue").length) {
+          return;
+        }
+
+        // 3) Click on the backdrop → close everything
+        if ($target.is(".dialogue-backdrop")) {
+          $(".dialogue").hide();
+          $backdrop.hide();
+          return;
+        }
+
+        // 4) Click anywhere else on the page → close everything
+        $(".dialogue").hide();
+        $backdrop.hide();
+      });
+
+      // Optional: ESC key closes dialogue + backdrop
+      $(document).on("keydown", (e) => {
+        if (e.key === "Escape") {
+          $(".dialogue").hide();
+          $(".dialogue-backdrop").hide();
+        }
+      });
+    });
+  </script>
+  
   </body>
 </html>
-
-<!-- To run, in terminal: cd "/Users/jakegetson/Library/CloudStorage/OneDrive-purdue.edu/Junior Year/IE 332"
-php -S localhost:8000 -->
