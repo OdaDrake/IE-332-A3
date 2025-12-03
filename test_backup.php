@@ -199,6 +199,11 @@ if (!$HDRresult) {
     die("Query failed: " . $conn->error);
 }
 
+// ---------- Total Downtime (TD) ----------
+$TDsql = "
+    
+";
+
 // Encode for JS
 $dfLabelsJson  = json_encode($dfLabels);
 $dfValuesJson  = json_encode($dfValues);
