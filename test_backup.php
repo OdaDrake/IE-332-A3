@@ -68,11 +68,11 @@ ORDER BY c.CompanyName;
 
 $CompTableresult = $conn->query($CompTablesql);
 if (!$CompTableresult) {
-    die("Query failed: " . $conn->error);
+    die("company table query failed: " . $conn->error);
 }
 
 // -------------------------------------------------
-// MODULE 2: Disruption Events (DF + ART)
+// MODULE 2: Disruption Events 
 // -------------------------------------------------
 
 // Date range
@@ -196,13 +196,34 @@ $HDRsql = "
 
 $HDRresult = $conn->query($HDRsql);
 if (!$HDRresult) {
-    die("Query failed: " . $conn->error);
+    die("HDR query failed: " . $conn->error);
 }
 
 // ---------- Total Downtime (TD) ----------
 $TDsql = "
-
+    SELECT
+        DATEDIFF(de.EventRecoveryDate, de.EventDate) AS downtime_days
+    FROM DisruptionEvent de
+    JOIN ImpactsCompany ic
+        ON ic.EventID = de.EventID
+    WHERE ic.AffectedCompanyID = ". (int)$companyID ."
+        AND de.EventDate BETWEEN '$dfStart' AND '$dfEnd'
+        AND de.EventRecoveryDate IS NOT NULL
 ";
+
+$TDresult = $conn->query($TDsql);
+if(!$TDresult) {
+    die('Total downtime query failed: ' . $conn->error);
+}
+
+$downtimeData = array();
+$totalDowntimeDays = 0;
+
+while ($row = $TDresult->fetch_assoc()) {
+    $d = (int)$row['downtime_days'];
+    $downtimeData[] = $d;
+    $totalDowntimeDays += $d; // TD for said supplier
+}
 
 // Encode for JS
 $dfLabelsJson  = json_encode($dfLabels);
@@ -501,7 +522,7 @@ $artValuesJson = json_encode($artValues);
                         <th> Average Delay </th>
                         <th> STD Delay </th>
                         <th> Fin Health </th>
-                        <th> Distruption Dist.</th>
+                        <th> Disruption Dist.</th>
                     </tr>
                     </thead>
                     <tbody>
@@ -595,13 +616,25 @@ $artValuesJson = json_encode($artValues);
 
         <!-- HDR -->
         <div class="chart-header">
-            <h3 class="chart-title"> High-Impact Distruption Rate (HDR) </h3>
+            <h3 class="chart-title"> High-Impact Disruption Rate (HDR) </h3>
             <p><?php echo htmlspecialchars($HDRresult->fetch_assoc()['HDR_percent']); ?></p>
         </div>
 
         <!-- Total Downtime (TD) -->
         <div class="chart-header">
             <h3 class="chart-title"> Total Downtime (TD) </h3>
+            <p class="chart-subtitle">Aggregated downtime across all disruptions with recovery dates in this period.
+            <strong><?php echo htmlspecialchars($totalDowntimeDays); ?></strong> 
+            </p>
+        </div>
+        <div class="df-chart-wrapper">
+            <?php if (count($downtimeData) > 0): ?>
+                <canvas id="tdChart" height="260"></canvas>
+            <?php else: ?>
+                <div class="no-data">
+                    No disruptions with recorded recovery dates in the selected period.
+                </div>
+            <?php endif; ?>
         </div>
 
     </div>
@@ -701,6 +734,8 @@ $artValuesJson = json_encode($artValues);
                 }
             }
         });
+
+        // Module 2: TD Histogram
     }
 })();
 </script>
@@ -711,5 +746,6 @@ $CompTableresult->free();
 $artresult->free();
 $dfRes->free();
 $HDRresult->free();
+$TDresult->free();
 $conn->close();
 ?>
