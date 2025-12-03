@@ -9,10 +9,10 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
 }
 */
 
-ini_set('display_errors', 1);
+/* ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(EALL);
-mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT); */
 
 // DB connection
 $servername = "mydb.itap.purdue.edu";
@@ -31,16 +31,39 @@ if ($conn->connect_error) {
 // MODULE 1: Company info table
 // -------------------------------------------------
 $sql = "
-    SELECT 
-        c.CompanyName,
-        l.City,
-        l.CountryName,
-        c.Type,
-        c.TierLevel
-    FROM Company c
-    JOIN Location l 
-        ON c.LocationID = l.LocationID
-    ORDER BY c.CompanyName
+SELECT
+    c.CompanyID,
+    c.CompanyName,
+    c.Type,
+    c.TierLevel,
+    l.City,
+    l.CountryName,
+    ROUND(
+        100 * SUM(CASE WHEN s.ActualDate <= s.PromisedDate THEN 1 ELSE 0 END)
+        / NULLIF(COUNT(s.ShipmentID), 0),
+        2
+    ) AS OnTimeRate,
+    AVG(DATEDIFF(s.ActualDate, s.PromisedDate)) AS AvgDelay,
+    STDDEV_SAMP(DATEDIFF(s.ActualDate, s.PromisedDate)) AS StdDelay,
+    AVG(fr.HealthScore) AS AvgHealthScoreLastYear,
+    COUNT(DISTINCT de.EventID) AS DisruptionCountLastYear
+FROM Company c
+JOIN Location l
+    ON c.LocationID = l.LocationID
+LEFT JOIN Shipping s
+    ON s.SourceCompanyID = c.CompanyID
+    AND s.ActualDate IS NOT NULL  -- ensure delivered shipments only
+LEFT JOIN FinancialReport fr
+    ON fr.CompanyID = c.CompanyID
+    AND fr.RepYear >= YEAR(CURDATE()) - 1
+LEFT JOIN ImpactsCompany ic
+    ON ic.AffectedCompanyID = c.CompanyID
+LEFT JOIN DisruptionEvent de
+    ON de.EventID = ic.EventID
+    AND de.EventDate >= CURDATE() - INTERVAL 1 YEAR
+GROUP BY
+    c.CompanyID, c.CompanyName, c.Type, c.TierLevel, l.City, l.CountryName
+ORDER BY c.CompanyName;
 ";
 
 $result = $conn->query($sql);
@@ -52,7 +75,7 @@ if (!$result) {
 // MODULE 2: Disruption Events (DF + ART)
 // -------------------------------------------------
 
-// Date range for both DF and ART. Default: last 90 days.
+// Date range
 $dfStart = isset($_GET['df_start']) ? trim($_GET['df_start']) : '';
 $dfEnd   = isset($_GET['df_end'])   ? trim($_GET['df_end'])   : '';
 
@@ -102,10 +125,10 @@ if ($dfStart !== '' && $dfEnd !== '') {
 
 // ---------- Average Recovery Time (ART) histogram ----------
 $artBins = [
-    '0–2 days'   => 0,
-    '3–5 days'   => 0,
-    '6–10 days'  => 0,
-    '11–20 days' => 0,
+    '0-2 days'   => 0,
+    '3-5 days'   => 0,
+    '6-10 days'  => 0,
+    '11-20 days' => 0,
     '21+ days'   => 0
 ];
 
@@ -138,13 +161,13 @@ if ($dfStart !== '' && $dfEnd !== '') {
             $recoveryCount++;
 
             if ($d <= 2) {
-                $artBins['0–2 days']++;
+                $artBins['0-2 days']++;
             } elseif ($d <= 5) {
-                $artBins['3–5 days']++;
+                $artBins['3-5 days']++;
             } elseif ($d <= 10) {
-                $artBins['6–10 days']++;
+                $artBins['6-10 days']++;
             } elseif ($d <= 20) {
-                $artBins['11–20 days']++;
+                $artBins['11-20 days']++;
             } else {
                 $artBins['21+ days']++;
             }
@@ -158,6 +181,24 @@ if ($recoveryCount > 0) {
     $overallART = $totalRecoveryDays / $recoveryCount;
 }
 
+// ---------- High-Impact Disruption Rate (HDR) Value ----------
+$HDRsql = "
+    SELECT
+        CASE
+            WHEN COUNT(*) = 0 THEN NULL
+            ELSE 100.0 * SUM(CASE WHEN ic.ImpactLevel = 'High' THEN 1 ELSE 0 END) / COUNT(*)
+        END AS HDR_percent
+    FROM DisruptionEvent de
+    JOIN ImpactsCompany ic
+        ON ic.EventID = de.EventID
+    WHERE de.EventDate BETWEEN '$dfStart' and '$dfEnd'    
+    ";
+
+$HDRresult = $conn->query($HDRsql);
+if (!$HDRresult) {
+    die("Query failed: " . $conn->error);
+}
+
 // Encode for JS
 $dfLabelsJson  = json_encode($dfLabels);
 $dfValuesJson  = json_encode($dfValues);
@@ -166,11 +207,12 @@ $artValues     = array_values($artBins);
 $artLabelsJson = json_encode($artLabels);
 $artValuesJson = json_encode($artValues);
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>TEST</title>
+    <title>This is test_backup file</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -450,6 +492,11 @@ $artValuesJson = json_encode($artValues);
                         <th>Tier</th>
                         <th>City</th>
                         <th>Country</th>
+                        <th> Delivery Rate </th>
+                        <th> Average Delay </th>
+                        <th> STD Delay </th>
+                        <th> Fin Health </th>
+                        <th> Distruption Dist.</th>
                     </tr>
                     </thead>
                     <tbody>
@@ -460,6 +507,11 @@ $artValuesJson = json_encode($artValues);
                             <td><span class="pill tier-pill"><?php echo htmlspecialchars($row['TierLevel']); ?></span></td>
                             <td><?php echo htmlspecialchars($row['City']); ?></td>
                             <td><?php echo htmlspecialchars($row['CountryName']); ?></td>
+                            <td><?php echo htmlspecialchars(isset($row['OnTimeRate']) ? $row['OnTimeRate'] : 'N/A') ?></td>
+                            <td><?php echo htmlspecialchars(isset($row['AvgDelay']) ? $row['AvgDelay'] : 'N/A') ?></td>
+                            <td><?php echo htmlspecialchars(isset($row['StdDelay']) ? $row['StdDelay'] : 'N/A') ?></td>
+                            <td><?php echo htmlspecialchars(isset($row['AvgHealthScoreLastYear']) ? $row['AvgHealthScoreLastYear'] : 'N/A') ?></td>
+                            <td><?php echo htmlspecialchars(isset($row['DisruptionCountLastYear']) ? $row['DisruptionCountLastYear'] : '0') ?></td>
                         </tr>
                     <?php endwhile; ?>
                     </tbody>
@@ -535,6 +587,14 @@ $artValuesJson = json_encode($artValues);
                 </div>
             <?php endif; ?>
         </div>
+
+        <!-- HDR -->
+        <div class="chart-header">
+            <h3 class="chart-title"> High-Impact Distruption Rate (HDR) </h3>
+            <p><?php echo htmlspecialchars($HDRresult->fetch_assoc()['HDR_percent']); ?></p>
+        </div>
+
+        <!-- HDR -->
     </div>
 </div>
 
@@ -639,5 +699,6 @@ $artValuesJson = json_encode($artValues);
 </html>
 <?php
 $result->free();
+$KPIresult->free();
 $conn->close();
 ?>
