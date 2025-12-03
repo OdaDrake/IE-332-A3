@@ -204,10 +204,7 @@ $TDsql = "
     SELECT
         DATEDIFF(de.EventRecoveryDate, de.EventDate) AS downtime_days
     FROM DisruptionEvent de
-    JOIN ImpactsCompany ic
-        ON ic.EventID = de.EventID
-    WHERE ic.AffectedCompanyID = ". (int)$companyID ."
-        AND de.EventDate BETWEEN '$dfStart' AND '$dfEnd'
+    WHERE de.EventDate BETWEEN '$dfStart' AND '$dfEnd'
         AND de.EventRecoveryDate IS NOT NULL
 ";
 
@@ -218,6 +215,17 @@ if(!$TDresult) {
 
 $downtimeData = array();
 $totalDowntimeDays = 0;
+
+$tdBins = array();
+
+foreach ($downtimeData as $d) {
+    if (!isset($tdBins[$d])) {
+        $tdBins[$d] = 0;
+    }
+    $tdBins[$d]++;
+}
+
+ksort($tdBins); // sort by downtime-day ascending
 
 while ($row = $TDresult->fetch_assoc()) {
     $d = (int)$row['downtime_days'];
@@ -232,6 +240,10 @@ $artLabels     = array_keys($artBins);
 $artValues     = array_values($artBins);
 $artLabelsJson = json_encode($artLabels);
 $artValuesJson = json_encode($artValues);
+$tdLabels = array_keys($tdBins);
+$tdValues = array_values($tdBins);
+$tdLabelsJson = json_encode($tdLabels);
+$tdValuesJson = json_encode($tdValues);
 ?>
 
 <!DOCTYPE html>
@@ -734,9 +746,49 @@ $artValuesJson = json_encode($artValues);
                 }
             }
         });
-
-        // Module 2: TD Histogram
     }
+
+    // Module 2: TD Histogram
+    var tdLabels = <?php echo $tdLabelsJson; ?>;
+    var tdValues = <?php echo $tdValuesJson; ?>;
+
+    if(tdLabels.length && document.getElementById('tdChart')){
+        var ctx3 = document.getElementById('tdChart').getContext('2d');
+        new Chart(ctx3, {
+            type: 'bar',
+            data: {
+                labels: tdLabels,
+                datasets: [{
+                    label: 'Number of disruptions',
+                    data: tdValues,
+                    backgroundColor: '#f9a8d4',
+                    borderColor: '#ec4899',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        ticks: { color: '#f5f5f5' },
+                        grid: { display: false }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: { color: '#f5f5f5' },
+                        grid: { color: 'rgba(255,255,255,0.1)' }
+                    }
+                },
+                plugins: {
+                    legend: { 
+                        labels: { color: '#f5f5f5' } 
+                    }
+                }
+            }
+        });
+    } 
+
 })();
 </script>
 </body>
