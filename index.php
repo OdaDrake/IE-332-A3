@@ -1,29 +1,45 @@
 <?php
-session_start(); // must be first
+session_start();
+date_default_timezone_set('America/Indiana/Indianapolis');
 
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
-
-// When the form is submitted:
+// Handle login form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-    $username = isset($_POST['username']) ? $_POST['username'] : '';
-    $password = isset($_POST['password']) ? $_POST['password'] : '';
+  // Collect form inputs (compatible with older PHP versions)
+  $username = isset($_POST['username']) ? trim($_POST['username']) : '';
+  $password = isset($_POST['password']) ? trim($_POST['password']) : '';
 
-    // Hardcoded login
-    if ($username === 'senior' && $password === 'senior123') {
+  // Define credentials
+  $supply_username = 'supply';
+  $supply_password = 'supply123';
 
-        // Mark user as logged in
-        $_SESSION['logged_in'] = true;
-        $_SESSION['username']  = $username;
+  $senior_username = 'senior';
+  $senior_password = 'senior123';
 
-        header("Location: company_table.php");
-        exit;
+  // Validate credentials
+  if ($username === $supply_username && $password === $supply_password) {
+    $_SESSION['logged_in'] = true;
+    $_SESSION['username']  = $username;
+    header('Location: supplychainmanager.php');
+    exit;
+  } elseif ($username === $senior_username && $password === $senior_password) {
+    $_SESSION['logged_in'] = true;
+    $_SESSION['username']  = $username;
+    header('Location: test_backup.php');
+    exit;
+  } else {
+    // Store an error message and reload the login page
+    $_SESSION['login_error'] = 'Invalid username or password.';
+    header('Location: index.php');
+    exit;
+  }
+}
 
-    } else {
-        echo "<script>alert('Invalid username or password');</script>";
-    }
+// Pull error message out of the session (if any) so we can show it once
+$login_error = '';
+if (isset($_SESSION['login_error'])) {
+  $login_error = $_SESSION['login_error'];
+  unset($_SESSION['login_error']);
 }
 ?>
 
@@ -38,7 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       position: fixed;
       width: 100%;
       color: whitesmoke;
-      display: flex;
+      display: flex; 
       flex-direction: row;
       align-items: center;
       justify-content: space-between;
@@ -453,3 +469,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   
   </body>
 </html>
+
+<!-- To run, in terminal: cd "/Users/jakegetson/Library/CloudStorage/OneDrive-purdue.edu/Junior Year/IE 332"
+php -S localhost:8000 -->
