@@ -594,7 +594,10 @@ $artValuesJson = json_encode($artValues);
             <p><?php echo htmlspecialchars($HDRresult->fetch_assoc()['HDR_percent']); ?></p>
         </div>
 
-        <!-- HDR -->
+        <!-- Total Downtime (TD) -->
+        <div class="chart-header">
+            <h3 class="chart-title"> Total Downtime (TD) </h3>
+        </div>
     </div>
 </div>
 
@@ -699,6 +702,5 @@ $artValuesJson = json_encode($artValues);
 </html>
 <?php
 $result->free();
-$KPIresult->free();
 $conn->close();
 ?>
