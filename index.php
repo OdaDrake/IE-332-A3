@@ -167,7 +167,7 @@ if (isset($_SESSION['login_error'])) {
     .card:hover underline {
       width: 90%;
     }
-
+ 
     .circle {
       position: absolute;
       display: flex;

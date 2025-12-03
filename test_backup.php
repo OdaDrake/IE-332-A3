@@ -30,7 +30,7 @@ if ($conn->connect_error) {
 // -------------------------------------------------
 // MODULE 1: Company info table
 // -------------------------------------------------
-$sql = "
+$CompTablesql = "
 SELECT
     c.CompanyID,
     c.CompanyName,
@@ -66,8 +66,8 @@ GROUP BY
 ORDER BY c.CompanyName;
 ";
 
-$result = $conn->query($sql);
-if (!$result) {
+$CompTableresult = $conn->query($CompTablesql);
+if (!$CompTableresult) {
     die("Query failed: " . $conn->error);
 }
 
@@ -201,7 +201,7 @@ if (!$HDRresult) {
 
 // ---------- Total Downtime (TD) ----------
 $TDsql = "
-    
+
 ";
 
 // Encode for JS
@@ -479,7 +479,7 @@ $artValuesJson = json_encode($artValues);
             </p>
         </div>
 
-        <?php if ($result->num_rows > 0): ?>
+        <?php if ($CompTableresult->num_rows > 0): ?>
             <div class="search-bar">
                 <input 
                     type="text" 
@@ -505,7 +505,7 @@ $artValuesJson = json_encode($artValues);
                     </tr>
                     </thead>
                     <tbody>
-                    <?php while ($row = $result->fetch_assoc()): ?>
+                    <?php while ($row = $CompTableresult->fetch_assoc()): ?>
                         <tr>
                             <td><?php echo htmlspecialchars($row['CompanyName']); ?></td>
                             <td><span class="pill"><?php echo htmlspecialchars($row['Type']); ?></span></td>
@@ -603,6 +603,7 @@ $artValuesJson = json_encode($artValues);
         <div class="chart-header">
             <h3 class="chart-title"> Total Downtime (TD) </h3>
         </div>
+
     </div>
 </div>
 
@@ -706,6 +707,9 @@ $artValuesJson = json_encode($artValues);
 </body>
 </html>
 <?php
-$result->free();
+$CompTableresult->free();
+$artresult->free();
+$dfRes->free();
+$HDRresult->free();
 $conn->close();
 ?>
