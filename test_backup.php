@@ -84,7 +84,7 @@ if ($dfStart === '' && $dfEnd === '') {
     $dfStart = date('Y-m-d', strtotime('-90 days'));
 }
 
-// Observation period T (days) for DF
+// Observation period (days) for DF
 $T_days = 1;
 $tsStart = strtotime($dfStart);
 $tsEnd   = strtotime($dfEnd);
@@ -233,6 +233,201 @@ while ($row = $TDresult->fetch_assoc()) {
     $totalDowntimeDays += $d; // TD for said supplier
 }
 
+// ---------- Regional Risk Concentration (RRC) ----------
+$RRCsql = "
+    SELECT
+        l.CountryName AS Region,
+        COUNT(DISTINCT de.EventID) AS DisruptionCount,
+        CASE
+            WHEN total.total_count = 0 THEN NULL
+            ELSE COUNT(DISTINCT de.EventID) / total.total_count
+        END AS RRC_fraction
+    FROM DisruptionEvent de
+    JOIN ImpactsCompany ic
+        ON ic.EventID = de.EventID
+    JOIN Company c
+        ON c.CompanyID = ic.AffectedCompanyID
+    JOIN Location l
+        ON l.LocationID = c.LocationID
+    JOIN (
+        SELECT COUNT(DISTINCT de2.EventID) AS total_count
+        FROM DisruptionEvent de2
+        JOIN ImpactsCompany ic2
+            ON ic2.EventID = de2.EventID
+        WHERE de2.EventDate BETWEEN '$dfStart' AND '$dfEnd'
+    ) AS total
+    WHERE de.EventDate BETWEEN '$dfStart' AND '$dfEnd'
+    GROUP BY l.CountryName
+    ORDER BY RRC_fraction DESC
+";
+
+$RRCresult = $conn->query($RRCsql);
+if (!$RRCresult) {
+    die('RRC query failed: ' . $conn->error);
+}
+
+$rrcRegions = array();   // Country names
+$rrcValues  = array();   // Fractions 0–1
+
+while ($row = $RRCresult->fetch_assoc()) {
+    if ($row['RRC_fraction'] === null) {
+        continue;
+    }
+    $rrcRegions[] = $row['Region'];
+    $rrcValues[]  = (float)$row['RRC_fraction'];
+}
+
+// ---------- Disruption Severity Distribution (DSD) ----------
+$DSDsql = "
+    SELECT
+        ic.ImpactLevel,
+        COUNT(*) AS cnt
+    FROM DisruptionEvent de
+    JOIN ImpactsCompany ic
+        ON ic.EventID = de.EventID
+    WHERE de.EventDate BETWEEN '$dfStart' AND '$dfEnd'
+    GROUP BY ic.ImpactLevel
+";
+
+$DSDresult = $conn->query($DSDsql);
+if(!$DSDresult){
+    die('DSD query failed: ' . $conn->error);
+}
+
+$dsdCounts = array(
+    'Low' => 0,
+    'Medium' => 0,
+    'High' => 0
+);
+
+while ($row = $DSDresult->fetch_assoc()) {
+    $level = $row['ImpactLevel'];
+    if (isset($dsdCounts[$level])) {
+        $dsdCounts[$level] = (int)$row['cnt'];
+    }
+}
+
+/* Single stacked bar: "All disruptions" split into L / M / H */
+$dsdLabel = 'All disruptions';
+$dsdLow    = $dsdCounts['Low'];
+$dsdMedium = $dsdCounts['Medium'];
+$dsdHigh   = $dsdCounts['High'];
+
+// -------------------------------------------------
+// MODULE 3: Transaction Analysis 
+// -------------------------------------------------
+
+// Mod 3 filters
+$tStart = isset($_GET['t_start']) ? $_GET['t_start'] : '';
+$tEnd = isset($_GET['t_end'])   ? $_GET['t_end']   : '';
+$tCompany = isset($_GET['t_company']) ? (int)$_GET['t_company'] : 0;
+$tDirection = isset($_GET['t_direction']) ? $_GET['t_direction'] : 'any'; // 'any','leaving','arriving'
+$tCountry = isset($_GET['t_country']) ? $_GET['t_country'] : '';
+
+// Get list of companies for dropdown
+$companyOptions = array();
+$companySql = "SELECT CompanyID, CompanyName FROM Company ORDER BY CompanyName";
+$companyRes = $conn->query($companySql);
+if ($companyRes) {
+    while ($row = $companyRes->fetch_assoc()) {
+        $companyOptions[] = $row;
+    }
+}
+
+// Get list of countries for dropdown
+$countryOptions = array();
+$countrySql = "SELECT DISTINCT CountryName FROM Location ORDER BY CountryName";
+$countryRes = $conn->query($countrySql);
+if ($countryRes) {
+    while ($row = $countryRes->fetch_assoc()) {
+        $countryOptions[] = $row['CountryName'];
+    }
+}
+
+// ---- BUILD TRANSACTION QUERY CONDITIONS ----
+$conditions = array();
+
+// Date range: filter by PromisedDate so shipments without ActualDate (still in transit) are included
+if ($tStart !== '' && $tEnd !== '') {
+    $conditions[] = "s.PromisedDate BETWEEN '" . $conn->real_escape_string($tStart) .
+                    "' AND '" . $conn->real_escape_string($tEnd) . "'";
+}
+
+// Company filter: leaving or arriving a specific company
+if ($tCompany > 0) {
+    if ($tDirection === 'leaving') {
+        $conditions[] = "s.SourceCompanyID = " . $tCompany;
+    } elseif ($tDirection === 'arriving') {
+        $conditions[] = "s.DestinationCompanyID = " . $tCompany;
+    } else { // any
+        $conditions[] = "(s.SourceCompanyID = " . $tCompany . " OR s.DestinationCompanyID = " . $tCompany . ")";
+    }
+}
+
+// Country filter: either source OR destination in that country
+if ($tCountry !== '') {
+    $safeCountry = $conn->real_escape_string($tCountry);
+    $conditions[] = "(srcLoc.CountryName = '" . $safeCountry . "' OR destLoc.CountryName = '" . $safeCountry . "')";
+}
+
+$whereClause = '';
+if (count($conditions) > 0) {
+    $whereClause = "WHERE " . implode(" AND ", $conditions);
+}
+
+// ---- MAIN TRANSACTION QUERY ----
+$txSql = "
+    SELECT
+        s.ShipmentID,
+        s.PromisedDate,
+        s.ActualDate,
+        s.Quantity,
+        p.ProductName,
+
+        src.CompanyName      AS SourceCompany,
+        srcLoc.City          AS SourceCity,
+        srcLoc.CountryName   AS SourceCountry,
+
+        dest.CompanyName     AS DestCompany,
+        destLoc.City         AS DestCity,
+        destLoc.CountryName  AS DestCountry,
+
+        dist.CompanyName     AS DistributorName,
+
+        DATEDIFF(s.ActualDate, s.PromisedDate) AS DelayDays,
+        CASE
+            WHEN s.ActualDate IS NULL THEN 'In Transit'
+            WHEN s.ActualDate <= s.PromisedDate THEN 'On Time'
+            ELSE 'Late'
+        END AS StatusLabel
+    FROM Shipping s
+    JOIN Company src
+        ON s.SourceCompanyID = src.CompanyID
+    JOIN Location srcLoc
+        ON src.LocationID = srcLoc.LocationID
+    JOIN Company dest
+        ON s.DestinationCompanyID = dest.CompanyID
+    JOIN Location destLoc
+        ON dest.LocationID = destLoc.LocationID
+    JOIN Company dist
+        ON s.DistributorID = dist.CompanyID
+    JOIN Product p
+        ON s.ProductID = p.ProductID
+    $whereClause
+    ORDER BY s.PromisedDate DESC, s.ShipmentID DESC
+";
+
+$txResult = $conn->query($txSql);
+if (!$txResult) {
+    die("Transaction query failed: " . $conn->error);
+}
+
+$transactions = array();
+while ($row = $txResult->fetch_assoc()) {
+    $transactions[] = $row;
+}
+
+
 // Encode for JS
 $dfLabelsJson  = json_encode($dfLabels);
 $dfValuesJson  = json_encode($dfValues);
@@ -244,6 +439,12 @@ $tdLabels = array_keys($tdBins);
 $tdValues = array_values($tdBins);
 $tdLabelsJson = json_encode($tdLabels);
 $tdValuesJson = json_encode($tdValues);
+$rrcRegionsJson = json_encode($rrcRegions);
+$rrcValuesJson  = json_encode($rrcValues);
+$dsdLabelJson  = json_encode($dsdLabel);
+$dsdLowJson    = json_encode($dsdLow);
+$dsdMediumJson = json_encode($dsdMedium);
+$dsdHighJson   = json_encode($dsdHigh);
 ?>
 
 <!DOCTYPE html>
@@ -452,6 +653,23 @@ $tdValuesJson = json_encode($tdValues);
             color: var(--muted);
         }
 
+        .df-field select {
+            padding: 0.4rem 0.6rem;
+            border-radius: 6px;
+            border: none;
+            background-color: whitesmoke;
+            color: black;
+            font-size: 0.85rem;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        .df-field select:focus {
+            background-color: #141414;
+            box-shadow: 0 0 0 2px var(--accent);
+            color: white;
+        }
+
         .df-field input[type="date"] {
             padding: 0.4rem 0.6rem;
             border-radius: 6px;
@@ -506,10 +724,6 @@ $tdValuesJson = json_encode($tdValues);
     <div class="card">
         <div class="module-header">
             <h2 class="module-header-title">Company Info Table</h2>
-            <p class="subtitle">
-                Live view of companies, locations, and tiers pulled directly from the MySQL
-                <strong>Company</strong> and <strong>Location</strong> tables.
-            </p>
         </div>
 
         <?php if ($CompTableresult->num_rows > 0): ?>
@@ -589,7 +803,7 @@ $tdValuesJson = json_encode($tdValues);
         </div>
         <div class="df-chart-wrapper">
             <?php if (!empty($dfLabels)): ?>
-                <canvas id="dfChart" height="260"></canvas>
+                <canvas id="dfChart" height="420"></canvas>
             <?php else: ?>
                 <div class="no-data">
                     No disruption events found for the selected period. Try expanding the date range.
@@ -618,7 +832,7 @@ $tdValuesJson = json_encode($tdValues);
             <?php
             $totalArtCount = array_sum($artValues);
             if ($totalArtCount > 0): ?>
-                <canvas id="artChart" height="260"></canvas>
+                <canvas id="artChart" height="420"></canvas>
             <?php else: ?>
                 <div class="no-data">
                     No recovered disruption events in the selected period.
@@ -641,7 +855,7 @@ $tdValuesJson = json_encode($tdValues);
         </div>
         <div class="df-chart-wrapper">
             <?php if (count($downtimeData) > 0): ?>
-                <canvas id="tdChart" height="260"></canvas>
+                <canvas id="tdChart" height="420"></canvas>
             <?php else: ?>
                 <div class="no-data">
                     No disruptions with recorded recovery dates in the selected period.
@@ -649,7 +863,154 @@ $tdValuesJson = json_encode($tdValues);
             <?php endif; ?>
         </div>
 
+        <!-- Regional Risk Concentration -->
+        <div class="chart-header">
+            <h3 class="chart-title"> Regional Risk Concentration (RRC) </h3>
+            <p class="chart-subtitle"> 
+                N/A
+            </p>
+        </div>
+        <div class="df-chart-wrapper">
+            <?php if (!empty($rrcRegions)): ?>
+                <canvas id="rrcChart" height="420"></canvas>
+            <?php else: ?>
+                <div class="no-data">
+                    No disruptions found in the selected time period.
+                </div>
+            <?php endif; ?>
+        </div>
+
+        <!-- Disruption Severity Distribution (DSD) -->
+        <div class="chart-header">
+            <h3 class="chart-title">Disruption Severity Distribution (DSD)</h3>
+        </div>
+        <div class="df-chart-wrapper">
+            <?php if (($dsdLow + $dsdMedium + $dsdHigh) > 0): ?>
+                <canvas id="dsdChart" height="420"></canvas>
+            <?php else: ?>
+        <div class="no-data">
+            No disruption events found in the selected period.
+        </div>
+        <?php endif; ?>
+        </div>
     </div>
+
+    <!-- Module 3: Transaction Analysis -->
+    <div class="card">
+        <div class="module-header">
+            <h2 class="module-header-title">Transaction Analysis</h2>
+        </div>
+
+        <!-- Filters -->
+        <form method="get" class="df-form">
+            <div class="df-field">
+                <label for="t_start">Start date</label>
+                <input type="date" id="t_start" name="t_start"
+                    value="<?php echo htmlspecialchars($tStart); ?>">
+            </div>
+
+            <div class="df-field">
+                <label for="t_end">End date</label>
+                <input type="date" id="t_end" name="t_end"
+                    value="<?php echo htmlspecialchars($tEnd); ?>">
+            </div>
+
+            <div class="df-field">
+                <label for="t_country">Country (source or destination)</label>
+                <select id="t_country" name="t_country">
+                    <option value="">All countries</option>
+                    <?php foreach ($countryOptions as $country): ?>
+                        <option value="<?php echo htmlspecialchars($country); ?>"
+                            <?php if ($tCountry === $country) echo 'selected'; ?>>
+                            <?php echo htmlspecialchars($country); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div class="df-field">
+                <label for="t_company">Company (leaving/arriving)</label>
+                <select id="t_company" name="t_company">
+                    <option value="0">All companies</option>
+                    <?php foreach ($companyOptions as $co): ?>
+                        <option value="<?php echo (int)$co['CompanyID']; ?>"
+                            <?php if ($tCompany === (int)$co['CompanyID']) echo 'selected'; ?>>
+                            <?php echo htmlspecialchars($co['CompanyName']); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div class="df-field">
+                <label for="t_direction">Direction</label>
+                <select id="t_direction" name="t_direction">
+                    <option value="any" <?php if ($tDirection === 'any') echo 'selected'; ?>>Leaving or Arriving</option>
+                    <option value="leaving" <?php if ($tDirection === 'leaving') echo 'selected'; ?>>Leaving this company</option>
+                    <option value="arriving" <?php if ($tDirection === 'arriving') echo 'selected'; ?>>Arriving at this company</option>
+                </select>
+            </div>
+
+            <button type="submit">Update Transactions</button>
+        </form>
+
+        <!-- Optional: search bar for the table -->
+        <div class="search-bar">
+            <input type="text" id="txSearch" placeholder="Search shipments, companies, products...">
+        </div>
+
+        <div class="table-container">
+        <table id="transactionTable">
+            <thead>
+            <tr>
+                <th>Shipment ID</th>
+                <th>Distributor</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Product</th>
+                <th>Quantity</th>
+                <th>Promised</th>
+                <th>Delivered</th>
+                <th>Delay (days)</th>
+                <th>Status</th>
+            </tr>
+            </thead>
+            <tbody>
+            <?php if (!empty($transactions)): ?>
+                <?php foreach ($transactions as $tx): ?>
+                    <tr>
+                        <td><?php echo htmlspecialchars($tx['ShipmentID']); ?></td>
+                        <td><?php echo htmlspecialchars($tx['DistributorName']); ?></td>
+                        <td>
+                            <?php echo htmlspecialchars($tx['SourceCompany']); ?><br>
+                            <span class="pill">
+                                <?php echo htmlspecialchars($tx['SourceCity'] . ', ' . $tx['SourceCountry']); ?>
+                            </span>
+                        </td>
+                        <td>
+                            <?php echo htmlspecialchars($tx['DestCompany']); ?><br>
+                            <span class="pill">
+                                <?php echo htmlspecialchars($tx['DestCity'] . ', ' . $tx['DestCountry']); ?>
+                            </span>
+                        </td>
+                        <td><?php echo htmlspecialchars($tx['ProductName']); ?></td>
+                        <td><?php echo htmlspecialchars($tx['Quantity']); ?></td>
+                        <td><?php echo htmlspecialchars($tx['PromisedDate']); ?></td>
+                        <td><?php echo htmlspecialchars($tx['ActualDate']); ?></td>
+                        <td><?php echo htmlspecialchars($tx['DelayDays']); ?></td>
+                        <td><?php echo htmlspecialchars($tx['StatusLabel']); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            <?php else: ?>
+                <tr>
+                    <td colspan="10" class="no-data">
+                        No transactions match the selected filters.
+                    </td>
+                </tr>
+            <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+
 </div>
 
 <script>
@@ -789,7 +1150,181 @@ $tdValuesJson = json_encode($tdValues);
         });
     } 
 
-})();
+    // Module 2: RRC Heatmap
+    var rrcRegions = <?php echo $rrcRegionsJson; ?>;
+    var rrcValues  = <?php echo $rrcValuesJson; ?>;  // fractions 0–1
+
+    if (rrcRegions.length && document.getElementById('rrcChart')) {
+        var maxRRC = 0;
+        for (var i = 0; i < rrcValues.length; i++) {
+            if (rrcValues[i] > maxRRC) {
+                maxRRC = rrcValues[i];
+            }
+        }
+
+        // Map each value to a color from green (low) to red (high)
+        var rrcColors = rrcValues.map(function(v) {
+            if (maxRRC <= 0) {
+                return 'rgba(148, 163, 184, 0.4)'; // fallback grey
+            }
+            var t = v / maxRRC;          // 0..1
+            var hue = (1 - t) * 120;     // 120 = green, 0 = red
+            return 'hsl(' + hue + ', 80%, 50%)';
+        });
+
+        var ctxRRC = document.getElementById('rrcChart').getContext('2d');
+
+        new Chart(ctxRRC, {
+            type: 'bar',
+            data: {
+                labels: rrcRegions,
+                datasets: [{
+                    data: rrcValues,
+                    backgroundColor: rrcColors,
+                    borderColor: rrcColors,
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                indexAxis: 'y',              // horizontal bars → heatmap feel
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        ticks: {
+                            color: '#f5f5f5',
+                            callback: function(value) {
+                                return (value * 100).toFixed(0) + '%';
+                            }
+                        },
+                        grid: {
+                            color: 'rgba(255,255,255,0.1)'
+                        }
+                    },
+                    y: {
+                        ticks: { color: '#f5f5f5' },
+                        grid: { display: false }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                var v = context.raw * 100;
+                                return v.toFixed(1) + '% of disruptions';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Module 2: DSD Stacked Bar Chart
+    var dsdLabel  = <?php echo $dsdLabelJson; ?>;   
+    var dsdLow    = <?php echo $dsdLowJson; ?>;
+    var dsdMedium = <?php echo $dsdMediumJson; ?>;
+    var dsdHigh   = <?php echo $dsdHighJson; ?>;
+
+    
+    if (document.getElementById('dsdChart')) {
+        var ctxDSD = document.getElementById('dsdChart').getContext('2d');
+
+        new Chart(ctxDSD, {
+            type: 'bar',
+            data: {
+                labels: [dsdLabel],
+                datasets: [
+                    {
+                        label: 'Low',
+                        data: [dsdLow],
+                        backgroundColor: '#22c55e',
+                        barThickness: 80
+                    },
+                    {
+                        label: 'Medium',
+                        data: [dsdMedium],
+                        backgroundColor: '#eab308',
+                        barThickness: 80
+                    },
+                    {
+                        label: 'High',
+                        data: [dsdHigh],
+                        backgroundColor: '#ef4444',
+                        barThickness: 80
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        stacked: true,
+                        ticks: { color: '#f5f5f5' },
+                        grid: { display: false }
+                    },
+                    y: {
+                        stacked: true,
+                        beginAtZero: true,
+                        ticks: { 
+                            color: '#f5f5f5',
+                            precision: 0 
+                        },
+                        grid: { color: 'rgba(255,255,255,0.1)' },
+
+                        title: {
+                            display: true,
+                            text: 'Number of Disruption Events',
+                            color: '#f5f5f5',
+                            font: { size: 13 }
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: '#f5f5f5' }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': ' + context.raw + ' events';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Module 3: Filtering 
+    var txSearchInput = document.getElementById('txSearch');
+    var txTable = document.getElementById('transactionTable');
+
+    if (txSearchInput && txTable) {
+        txSearchInput.addEventListener('input', function () {
+            var filter = txSearchInput.value.toLowerCase();
+            var rows = txTable.getElementsByTagName('tr');
+
+            for (var i = 1; i < rows.length; i++) { // skip header row (index 0)
+                var cells = rows[i].getElementsByTagName('td');
+                var match = false;
+
+                for (var j = 0; j < cells.length; j++) {
+                    var txt = cells[j].textContent || cells[j].innerText;
+                    if (txt.toLowerCase().indexOf(filter) !== -1) {
+                        match = true;
+                        break;
+                    }
+                }
+                rows[i].style.display = match ? '' : 'none';
+            }
+        });
+    }
+
+})(); // Ends entire JS section
 </script>
 </body>
 </html>
@@ -799,5 +1334,8 @@ $artresult->free();
 $dfRes->free();
 $HDRresult->free();
 $TDresult->free();
+$RRCresult->free();
+$DSDresult->free();
+$txResult->free();
 $conn->close();
 ?>
