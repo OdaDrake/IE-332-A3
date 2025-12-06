@@ -163,6 +163,476 @@ if ($rdStart !== '' && $rdEnd !== '') {
     $rdRes->free();
 }
 
+// ---------- Most Critical Companies ----------
+$criticalCompanies = array();
+$criticalityScores = array();
+
+if ($rdStart !== '' && $rdEnd !== '') {
+    $rdStartEsc = $conn->real_escape_string($rdStart);
+    $rdEndEsc   = $conn->real_escape_string($rdEnd);
+
+    $criticalSql = "
+        SELECT 
+            c.CompanyName,
+            COUNT(DISTINCT d.DownstreamCompanyID) AS DownstreamCount,
+            SUM(CASE WHEN ic.ImpactLevel = 'High' THEN 1 ELSE 0 END) AS HighImpactCount,
+            COUNT(DISTINCT d.DownstreamCompanyID) * SUM(CASE WHEN ic.ImpactLevel = 'High' THEN 1 ELSE 0 END) AS Criticality
+        FROM Company c
+        LEFT JOIN DependsOn d 
+            ON c.CompanyID = d.UpstreamCompanyID
+        LEFT JOIN ImpactsCompany ic 
+            ON c.CompanyID = ic.AffectedCompanyID
+        LEFT JOIN DisruptionEvent de 
+            ON ic.EventID = de.EventID
+            AND de.EventDate >= '$rdStartEsc'
+            AND de.EventDate <= '$rdEndEsc'
+        GROUP BY c.CompanyID, c.CompanyName
+        HAVING Criticality > 0
+        ORDER BY Criticality DESC
+        LIMIT 20
+    ";
+
+    $criticalRes = $conn->query($criticalSql);
+    if (!$criticalRes) {
+        die("Critical companies query failed: " . $conn->error);
+    }
+    while ($row = $criticalRes->fetch_assoc()) {
+        $criticalCompanies[] = $row['CompanyName'];
+        $criticalityScores[] = (int)$row['Criticality'];
+    }
+    $criticalRes->free();
+}
+
+// ---------- Disruption Frequency Over Time ----------
+$disruptionDates = array();
+$disruptionCounts = array();
+
+if ($rdStart !== '' && $rdEnd !== '') {
+    $rdStartEsc = $conn->real_escape_string($rdStart);
+    $rdEndEsc   = $conn->real_escape_string($rdEnd);
+
+    $freqTimeSql = "
+        SELECT 
+            DATE_FORMAT(de.EventDate, '%Y-%m') AS MonthYear,
+            COUNT(DISTINCT de.EventID) AS DisruptionCount
+        FROM DisruptionEvent de
+        WHERE de.EventDate >= '$rdStartEsc'
+          AND de.EventDate <= '$rdEndEsc'
+        GROUP BY DATE_FORMAT(de.EventDate, '%Y-%m')
+        ORDER BY MonthYear ASC
+    ";
+
+    $freqTimeRes = $conn->query($freqTimeSql);
+    if (!$freqTimeRes) {
+        die("Disruption frequency over time query failed: " . $conn->error);
+    }
+    while ($row = $freqTimeRes->fetch_assoc()) {
+        $disruptionDates[] = $row['MonthYear'];
+        $disruptionCounts[] = (int)$row['DisruptionCount'];
+    }
+    $freqTimeRes->free();
+}
+
+// -------------------------------------------------
+// MODULE 3: Company Financials by Region
+// -------------------------------------------------
+
+// Company selector
+$cfCompanyID = isset($_GET['cf_company']) ? (int)$_GET['cf_company'] : 0;
+
+// Get list of all companies for dropdown (with region)
+$companyListOptions = array();
+$companyListSql = "
+    SELECT 
+        c.CompanyID, 
+        c.CompanyName,
+        l.CountryName,
+        l.ContinentName
+    FROM Company c
+    JOIN Location l ON c.LocationID = l.LocationID
+    ORDER BY c.CompanyName
+";
+$companyListRes = $conn->query($companyListSql);
+if ($companyListRes) {
+    while ($row = $companyListRes->fetch_assoc()) {
+        $companyListOptions[] = $row;
+    }
+    $companyListRes->free();
+}
+
+// Selected company data
+$selectedCompanyName = '';
+$selectedCompanyRegion = '';
+$cfQuarters = array();
+$cfHealthScores = array();
+
+if ($cfCompanyID > 0) {
+    // Get company info
+    $companyInfoSql = "
+        SELECT 
+            c.CompanyName,
+            l.ContinentName,
+            l.CountryName
+        FROM Company c
+        JOIN Location l ON c.LocationID = l.LocationID
+        WHERE c.CompanyID = $cfCompanyID
+    ";
+    $companyInfoRes = $conn->query($companyInfoSql);
+    if ($companyInfoRes && $row = $companyInfoRes->fetch_assoc()) {
+        $selectedCompanyName = $row['CompanyName'];
+        $selectedCompanyRegion = $row['ContinentName'] . ' - ' . $row['CountryName'];
+        $companyInfoRes->free();
+    }
+
+    // Get financial data
+    $cfDataSql = "
+        SELECT 
+            CONCAT(RepYear, '-', Quarter) AS Period,
+            HealthScore
+        FROM FinancialReport
+        WHERE CompanyID = $cfCompanyID
+        ORDER BY RepYear ASC, 
+                 FIELD(Quarter, 'Q1', 'Q2', 'Q3', 'Q4')
+    ";
+    $cfDataRes = $conn->query($cfDataSql);
+    if ($cfDataRes) {
+        while ($row = $cfDataRes->fetch_assoc()) {
+            $cfQuarters[] = $row['Period'];
+            $cfHealthScores[] = (float)$row['HealthScore'];
+        }
+        $cfDataRes->free();
+    }
+}
+
+// -------------------------------------------------
+// MODULE 4: Top Distributors by Shipment Volume
+// -------------------------------------------------
+
+// Distributor selector
+$tdDistributorID = isset($_GET['td_distributor']) ? (int)$_GET['td_distributor'] : 0;
+
+// Get list of all distributors
+$distributorListOptions = array();
+$distributorListSql = "
+    SELECT DISTINCT
+        c.CompanyID,
+        c.CompanyName,
+        l.ContinentName
+    FROM Company c
+    JOIN Location l ON c.LocationID = l.LocationID
+    WHERE c.Type = 'Distributor'
+    ORDER BY c.CompanyName
+";
+$distributorListRes = $conn->query($distributorListSql);
+if ($distributorListRes) {
+    while ($row = $distributorListRes->fetch_assoc()) {
+        $distributorListOptions[] = $row;
+    }
+    $distributorListRes->free();
+}
+
+// Top distributors overall
+$topDistributors = array();
+$topDistributorVolumes = array();
+
+$topDistSql = "
+    SELECT 
+        c.CompanyName,
+        SUM(s.Quantity) AS TotalVolume
+    FROM Shipping s
+    JOIN Company c ON s.DistributorID = c.CompanyID
+    GROUP BY c.CompanyID, c.CompanyName
+    ORDER BY TotalVolume DESC
+    LIMIT 15
+";
+$topDistRes = $conn->query($topDistSql);
+if ($topDistRes) {
+    while ($row = $topDistRes->fetch_assoc()) {
+        $topDistributors[] = $row['CompanyName'];
+        $topDistributorVolumes[] = (int)$row['TotalVolume'];
+    }
+    $topDistRes->free();
+}
+
+// Selected distributor data
+$selectedDistributorName = '';
+$tdMonths = array();
+$tdVolumes = array();
+
+if ($tdDistributorID > 0) {
+    // Get distributor name
+    $distNameSql = "SELECT CompanyName FROM Company WHERE CompanyID = $tdDistributorID";
+    $distNameRes = $conn->query($distNameSql);
+    if ($distNameRes && $row = $distNameRes->fetch_assoc()) {
+        $selectedDistributorName = $row['CompanyName'];
+        $distNameRes->free();
+    }
+
+    // Get monthly shipment volumes
+    $tdVolumeSql = "
+        SELECT 
+            DATE_FORMAT(s.PromisedDate, '%Y-%m') AS Month,
+            SUM(s.Quantity) AS Volume
+        FROM Shipping s
+        WHERE s.DistributorID = $tdDistributorID
+        GROUP BY DATE_FORMAT(s.PromisedDate, '%Y-%m')
+        ORDER BY Month ASC
+    ";
+    $tdVolumeRes = $conn->query($tdVolumeSql);
+    if ($tdVolumeRes) {
+        while ($row = $tdVolumeRes->fetch_assoc()) {
+            $tdMonths[] = $row['Month'];
+            $tdVolumes[] = (int)$row['Volume'];
+        }
+        $tdVolumeRes->free();
+    }
+}
+
+// -------------------------------------------------
+// MODULE 5: Companies Affected by Disruption Event
+// -------------------------------------------------
+
+// Event selector
+$deEventID = isset($_GET['de_event']) ? (int)$_GET['de_event'] : 0;
+
+// Get list of all disruption events
+$eventListOptions = array();
+$eventListSql = "
+    SELECT 
+        de.EventID,
+        de.EventDate,
+        dc.CategoryName
+    FROM DisruptionEvent de
+    JOIN DisruptionCategory dc ON de.CategoryID = dc.CategoryID
+    ORDER BY de.EventDate DESC
+";
+$eventListRes = $conn->query($eventListSql);
+if ($eventListRes) {
+    while ($row = $eventListRes->fetch_assoc()) {
+        $eventListOptions[] = $row;
+    }
+    $eventListRes->free();
+}
+
+// Selected event data
+$selectedEventDate = '';
+$selectedEventCategory = '';
+$affectedCompanies = array();
+
+if ($deEventID > 0) {
+    // Get event info
+    $eventInfoSql = "
+        SELECT 
+            de.EventDate,
+            de.EventRecoveryDate,
+            dc.CategoryName
+        FROM DisruptionEvent de
+        JOIN DisruptionCategory dc ON de.CategoryID = dc.CategoryID
+        WHERE de.EventID = $deEventID
+    ";
+    $eventInfoRes = $conn->query($eventInfoSql);
+    if ($eventInfoRes && $row = $eventInfoRes->fetch_assoc()) {
+        $selectedEventDate = $row['EventDate'];
+        $selectedEventCategory = $row['CategoryName'];
+        $selectedEventRecovery = $row['EventRecoveryDate'];
+        $eventInfoRes->free();
+    }
+
+    // Get affected companies
+    $affectedSql = "
+        SELECT 
+            c.CompanyName,
+            c.Type,
+            l.CountryName,
+            l.ContinentName,
+            ic.ImpactLevel
+        FROM ImpactsCompany ic
+        JOIN Company c ON ic.AffectedCompanyID = c.CompanyID
+        JOIN Location l ON c.LocationID = l.LocationID
+        WHERE ic.EventID = $deEventID
+        ORDER BY 
+            FIELD(ic.ImpactLevel, 'High', 'Medium', 'Low'),
+            c.CompanyName
+    ";
+    $affectedRes = $conn->query($affectedSql);
+    if ($affectedRes) {
+        while ($row = $affectedRes->fetch_assoc()) {
+            $affectedCompanies[] = $row;
+        }
+        $affectedRes->free();
+    }
+}
+
+// -------------------------------------------------
+// MODULE 6: All Disruptions for a Specific Company
+// -------------------------------------------------
+
+// Company selector for disruptions
+$dcCompanyID = isset($_GET['dc_company']) ? (int)$_GET['dc_company'] : 0;
+
+// Get list of all companies (reuse same list as Module 3)
+// (already have $companyListOptions from Module 3)
+
+// Selected company disruptions
+$selectedDisruptionCompanyName = '';
+$companyDisruptions = array();
+
+if ($dcCompanyID > 0) {
+    // Get company name
+    $compNameSql = "SELECT CompanyName FROM Company WHERE CompanyID = $dcCompanyID";
+    $compNameRes = $conn->query($compNameSql);
+    if ($compNameRes && $row = $compNameRes->fetch_assoc()) {
+        $selectedDisruptionCompanyName = $row['CompanyName'];
+        $compNameRes->free();
+    }
+
+    // Get all disruptions affecting this company
+    $disruptionsSql = "
+        SELECT 
+            de.EventID,
+            de.EventDate,
+            de.EventRecoveryDate,
+            dc.CategoryName,
+            ic.ImpactLevel,
+            DATEDIFF(de.EventRecoveryDate, de.EventDate) AS RecoveryDays
+        FROM ImpactsCompany ic
+        JOIN DisruptionEvent de ON ic.EventID = de.EventID
+        JOIN DisruptionCategory dc ON de.CategoryID = dc.CategoryID
+        WHERE ic.AffectedCompanyID = $dcCompanyID
+        ORDER BY de.EventDate DESC
+    ";
+    $disruptionsRes = $conn->query($disruptionsSql);
+    if ($disruptionsRes) {
+        while ($row = $disruptionsRes->fetch_assoc()) {
+            $companyDisruptions[] = $row;
+        }
+        $disruptionsRes->free();
+    }
+}
+
+// -------------------------------------------------
+// MODULE 7: Distributors Sorted by Average Delay
+// -------------------------------------------------
+
+$distributorsByDelay = array();
+$avgDelays = array();
+
+$delayDistSql = "
+    SELECT 
+        c.CompanyName,
+        AVG(DATEDIFF(s.ActualDate, s.PromisedDate)) AS AvgDelay,
+        COUNT(s.ShipmentID) AS ShipmentCount
+    FROM Company c
+    JOIN Shipping s ON c.CompanyID = s.DistributorID
+    WHERE s.ActualDate IS NOT NULL
+      AND c.Type = 'Distributor'
+    GROUP BY c.CompanyID, c.CompanyName
+    HAVING COUNT(s.ShipmentID) >= 5
+    ORDER BY AvgDelay DESC
+    LIMIT 20
+";
+$delayDistRes = $conn->query($delayDistSql);
+if ($delayDistRes) {
+    while ($row = $delayDistRes->fetch_assoc()) {
+        $distributorsByDelay[] = $row['CompanyName'];
+        $avgDelays[] = round((float)$row['AvgDelay'], 2);
+    }
+    $delayDistRes->free();
+}
+
+// -------------------------------------------------
+// MODULE 8: Add New Company
+// -------------------------------------------------
+
+$addCompanyMessage = '';
+$addCompanySuccess = false;
+
+// Handle form submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_company'])) {
+    $newCompanyName = isset($_POST['new_company_name']) ? trim($_POST['new_company_name']) : '';
+    $newCompanyType = isset($_POST['new_company_type']) ? trim($_POST['new_company_type']) : '';
+    $newCompanyTier = isset($_POST['new_company_tier']) ? trim($_POST['new_company_tier']) : '';
+    $newLocationID = isset($_POST['new_location_id']) ? (int)$_POST['new_location_id'] : 0;
+
+    if ($newCompanyName && $newCompanyType && $newCompanyTier && $newLocationID > 0) {
+        $escapedName = $conn->real_escape_string($newCompanyName);
+        $escapedType = $conn->real_escape_string($newCompanyType);
+        $escapedTier = $conn->real_escape_string($newCompanyTier);
+
+        $insertSql = "
+            INSERT INTO Company (CompanyName, Type, TierLevel, LocationID)
+            VALUES ('$escapedName', '$escapedType', '$escapedTier', $newLocationID)
+        ";
+
+        if ($conn->query($insertSql)) {
+            $addCompanySuccess = true;
+            $addCompanyMessage = "Company '$newCompanyName' added successfully!";
+        } else {
+            $addCompanyMessage = "Error adding company: " . $conn->error;
+        }
+    } else {
+        $addCompanyMessage = "Please fill in all required fields.";
+    }
+}
+
+// Get all locations for dropdown
+$locationOptions = array();
+$locationSql = "
+    SELECT LocationID, City, CountryName, ContinentName 
+    FROM Location 
+    ORDER BY CountryName, City
+";
+$locationRes = $conn->query($locationSql);
+if ($locationRes) {
+    while ($row = $locationRes->fetch_assoc()) {
+        $locationOptions[] = $row;
+    }
+    $locationRes->free();
+}
+
+// -------------------------------------------------
+// MODULE 9: Risk vs Financial Health Scatter Plot
+// -------------------------------------------------
+
+$scatterData = array();
+
+$scatterSql = "
+    SELECT 
+        c.CompanyID,
+        c.CompanyName,
+        c.Type,
+        c.TierLevel,
+        AVG(fr.HealthScore) AS AvgHealthScore,
+        COUNT(DISTINCT ic.EventID) AS DisruptionCount,
+        COALESCE(SUM(DATEDIFF(de.EventRecoveryDate, de.EventDate)), 0) AS TotalDowntime
+    FROM Company c
+    LEFT JOIN FinancialReport fr 
+        ON c.CompanyID = fr.CompanyID
+    LEFT JOIN ImpactsCompany ic 
+        ON c.CompanyID = ic.AffectedCompanyID
+    LEFT JOIN DisruptionEvent de 
+        ON ic.EventID = de.EventID
+        AND de.EventRecoveryDate IS NOT NULL
+    GROUP BY c.CompanyID, c.CompanyName, c.Type, c.TierLevel
+    HAVING AVG(fr.HealthScore) IS NOT NULL
+    ORDER BY c.CompanyName
+";
+
+$scatterRes = $conn->query($scatterSql);
+if ($scatterRes) {
+    while ($row = $scatterRes->fetch_assoc()) {
+        $scatterData[] = array(
+            'companyName' => $row['CompanyName'],
+            'type' => $row['Type'],
+            'tier' => $row['TierLevel'],
+            'healthScore' => round((float)$row['AvgHealthScore'], 2),
+            'disruptionCount' => (int)$row['DisruptionCount'],
+            'totalDowntime' => (int)$row['TotalDowntime']
+        );
+    }
+    $scatterRes->free();
+}
+
 // Encode data for JavaScript
 $fhByCompanyLabelsJson = json_encode($fhByCompanyLabels);
 $fhByCompanyValuesJson = json_encode($fhByCompanyValues);
@@ -173,6 +643,19 @@ $rdTotalDisruptionsJson = json_encode($rdTotalDisruptions);
 $rdLowImpactDisruptionsJson = json_encode($rdLowImpactDisruptions);
 $rdMediumImpactDisruptionsJson = json_encode($rdMediumImpactDisruptions);
 $rdHighImpactDisruptionsJson = json_encode($rdHighImpactDisruptions);
+$criticalCompaniesJson = json_encode($criticalCompanies);
+$criticalityScoresJson = json_encode($criticalityScores);
+$disruptionDatesJson = json_encode($disruptionDates);
+$disruptionCountsJson = json_encode($disruptionCounts);
+$cfQuartersJson = json_encode($cfQuarters);
+$cfHealthScoresJson = json_encode($cfHealthScores);
+$topDistributorsJson = json_encode($topDistributors);
+$topDistributorVolumesJson = json_encode($topDistributorVolumes);
+$tdMonthsJson = json_encode($tdMonths);
+$tdVolumesJson = json_encode($tdVolumes);
+$distributorsByDelayJson = json_encode($distributorsByDelay);
+$avgDelaysJson = json_encode($avgDelays);
+$scatterDataJson = json_encode($scatterData);
 ?>
 
 <!DOCTYPE html>
@@ -372,6 +855,47 @@ $rdHighImpactDisruptionsJson = json_encode($rdHighImpactDisruptions);
         .nav-links a:hover {
             background-color: var(--accent-hover);
         }
+
+        /* Tab Navigation Styles */
+        .tab-navigation {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .tab-button {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            background-color: #2d2d2d;
+            color: var(--muted);
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 2px solid transparent;
+        }
+
+        .tab-button:hover {
+            background-color: #3a3a3a;
+            color: var(--text);
+        }
+
+        .tab-button.active {
+            background-color: var(--accent);
+            color: #141414;
+            border-color: var(--accent-hover);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -386,6 +910,17 @@ $rdHighImpactDisruptionsJson = json_encode($rdHighImpactDisruptions);
     <div class="nav-links">
         <a href="dashboard.php">← Back to Main Dashboard</a>
     </div>
+
+    <!-- Tab Navigation -->
+    <div class="tab-navigation">
+        <button class="tab-button active" onclick="switchTab('financial')">Financial Analytics</button>
+        <button class="tab-button" onclick="switchTab('disruptions')">Disruption Analytics</button>
+        <button class="tab-button" onclick="switchTab('logistics')">Logistics Performance</button>
+        <button class="tab-button" onclick="switchTab('management')">Data Management</button>
+    </div>
+
+    <!-- TAB 1: Financial Analytics -->
+    <div id="tab-financial" class="tab-content active">
 
     <!-- MODULE 1: Financial Health Analysis -->
     <div class="card">
@@ -440,6 +975,12 @@ $rdHighImpactDisruptionsJson = json_encode($rdHighImpactDisruptions);
         </div>
     </div>
 
+    </div>
+    <!-- END TAB: Financial Analytics (Module 1) -->
+
+    <!-- TAB 2: Disruption Analytics -->
+    <div id="tab-disruptions" class="tab-content">
+
     <!-- MODULE 2: Regional Disruption Overview -->
     <div class="card">
         <div class="module-header">
@@ -476,11 +1017,602 @@ $rdHighImpactDisruptionsJson = json_encode($rdHighImpactDisruptions);
                 </div>
             <?php endif; ?>
         </div>
+
+        <!-- Most Critical Companies Chart -->
+        <div class="chart-header">
+            <h3 class="chart-title">Most Critical Companies</h3>
+            <p class="chart-subtitle">Criticality Score = Downstream Dependencies × High-Impact Disruptions</p>
+        </div>
+        <div class="df-chart-wrapper">
+            <?php if (!empty($criticalCompanies)): ?>
+                <canvas id="criticalityChart" height="600"></canvas>
+            <?php else: ?>
+                <div class="no-data">
+                    No critical companies found in the selected period.
+                </div>
+            <?php endif; ?>
+        </div>
+
+        <!-- Disruption Frequency Over Time Chart -->
+        <div class="chart-header">
+            <h3 class="chart-title">Disruption Frequency Over Time</h3>
+            <p class="chart-subtitle">Number of disruptions per month in the selected period.</p>
+        </div>
+        <div class="df-chart-wrapper">
+            <?php if (!empty($disruptionDates)): ?>
+                <canvas id="freqTimeChart" height="400"></canvas>
+            <?php else: ?>
+                <div class="no-data">
+                    No disruption data found for the selected period.
+                </div>
+            <?php endif; ?>
+        </div>
     </div>
+
+    </div>
+    <!-- END TAB: Disruption Analytics (Module 2) -->
+
+    <!-- TAB 1: Financial Analytics (continued) -->
+    <div id="tab-financial-2" class="tab-content">
+
+    <!-- MODULE 3: Company Financials by Region -->
+    <div class="card">
+        <div class="module-header">
+            <h2 class="module-header-title">Company Financials by Region</h2>
+            <p class="subtitle">
+                Search for any company and view their financial health trends over time.
+            </p>
+        </div>
+
+        <!-- Company Selector -->
+        <form method="get" class="df-form">
+            <!-- Preserve other filter values -->
+            <input type="hidden" name="fh_start" value="<?php echo htmlspecialchars($fhStart); ?>">
+            <input type="hidden" name="fh_end" value="<?php echo htmlspecialchars($fhEnd); ?>">
+            <input type="hidden" name="rd_start" value="<?php echo htmlspecialchars($rdStart); ?>">
+            <input type="hidden" name="rd_end" value="<?php echo htmlspecialchars($rdEnd); ?>">
+            
+            <div class="df-field" style="min-width: 300px;">
+                <label for="cf_company">Select Company</label>
+                <select id="cf_company" name="cf_company">
+                    <option value="0">-- Choose a company --</option>
+                    <?php foreach ($companyListOptions as $co): ?>
+                        <option value="<?php echo (int)$co['CompanyID']; ?>"
+                            <?php if ($cfCompanyID === (int)$co['CompanyID']) echo 'selected'; ?>>
+                            <?php echo htmlspecialchars($co['CompanyName'] . ' (' . $co['ContinentName'] . ')'); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <button type="submit">View Company Financials</button>
+        </form>
+
+        <?php if ($cfCompanyID > 0): ?>
+            <!-- Company Info Display -->
+            <div style="margin-bottom: 16px; padding: 12px; background-color: #2d2d2d; border-radius: 8px;">
+                <p style="margin: 4px 0; color: var(--text); font-size: 1rem;">
+                    <strong>Company:</strong> <?php echo htmlspecialchars($selectedCompanyName); ?>
+                </p>
+                <p style="margin: 4px 0; color: var(--muted); font-size: 0.9rem;">
+                    <strong>Region:</strong> <?php echo htmlspecialchars($selectedCompanyRegion); ?>
+                </p>
+            </div>
+
+            <!-- Financial Health Chart -->
+            <div class="chart-header">
+                <h3 class="chart-title">Financial Health Score Over Time</h3>
+                <p class="chart-subtitle">Quarterly health scores from financial reports.</p>
+            </div>
+            <div class="df-chart-wrapper">
+                <?php if (!empty($cfQuarters)): ?>
+                    <canvas id="companyFinChart" height="400"></canvas>
+                <?php else: ?>
+                    <div class="no-data">
+                        No financial data available for this company.
+                    </div>
+                <?php endif; ?>
+            </div>
+        <?php else: ?>
+            <div class="no-data">
+                Please select a company from the dropdown above to view their financial data.
+            </div>
+        <?php endif; ?>
+    </div>
+
+    </div>
+    <!-- END TAB: Financial Analytics (Module 3) -->
+
+    <!-- TAB 3: Logistics Performance -->
+    <div id="tab-logistics" class="tab-content">
+
+    <!-- MODULE 4: Top Distributors by Shipment Volume -->
+    <div class="card">
+        <div class="module-header">
+            <h2 class="module-header-title">Top Distributors by Shipment Volume</h2>
+            <p class="subtitle">
+                View top distributors and detailed shipment data for any specific distributor.
+            </p>
+        </div>
+
+        <!-- Top Distributors Chart -->
+        <div class="chart-header">
+            <h3 class="chart-title">Top 15 Distributors by Total Volume</h3>
+            <p class="chart-subtitle">Total shipment quantity across all time.</p>
+        </div>
+        <div class="df-chart-wrapper">
+            <?php if (!empty($topDistributors)): ?>
+                <canvas id="topDistChart" height="500"></canvas>
+            <?php else: ?>
+                <div class="no-data">
+                    No distributor data available.
+                </div>
+            <?php endif; ?>
+        </div>
+
+        <!-- Distributor Selector -->
+        <form method="get" class="df-form" style="margin-top: 24px;">
+            <!-- Preserve other filter values -->
+            <input type="hidden" name="fh_start" value="<?php echo htmlspecialchars($fhStart); ?>">
+            <input type="hidden" name="fh_end" value="<?php echo htmlspecialchars($fhEnd); ?>">
+            <input type="hidden" name="rd_start" value="<?php echo htmlspecialchars($rdStart); ?>">
+            <input type="hidden" name="rd_end" value="<?php echo htmlspecialchars($rdEnd); ?>">
+            <input type="hidden" name="cf_company" value="<?php echo (int)$cfCompanyID; ?>">
+            
+            <div class="df-field" style="min-width: 300px;">
+                <label for="td_distributor">Select Distributor</label>
+                <select id="td_distributor" name="td_distributor">
+                    <option value="0">-- Choose a distributor --</option>
+                    <?php foreach ($distributorListOptions as $dist): ?>
+                        <option value="<?php echo (int)$dist['CompanyID']; ?>"
+                            <?php if ($tdDistributorID === (int)$dist['CompanyID']) echo 'selected'; ?>>
+                            <?php echo htmlspecialchars($dist['CompanyName'] . ' (' . $dist['ContinentName'] . ')'); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <button type="submit">View Distributor Details</button>
+        </form>
+
+        <?php if ($tdDistributorID > 0): ?>
+            <!-- Distributor Info Display -->
+            <div style="margin: 16px 0; padding: 12px; background-color: #2d2d2d; border-radius: 8px;">
+                <p style="margin: 4px 0; color: var(--text); font-size: 1rem;">
+                    <strong>Distributor:</strong> <?php echo htmlspecialchars($selectedDistributorName); ?>
+                </p>
+            </div>
+
+            <!-- Distributor Volume Over Time Chart -->
+            <div class="chart-header">
+                <h3 class="chart-title">Shipment Volume Over Time</h3>
+                <p class="chart-subtitle">Monthly shipment volumes for selected distributor.</p>
+            </div>
+            <div class="df-chart-wrapper">
+                <?php if (!empty($tdMonths)): ?>
+                    <canvas id="distVolumeChart" height="400"></canvas>
+                <?php else: ?>
+                    <div class="no-data">
+                        No shipment data available for this distributor.
+                    </div>
+                <?php endif; ?>
+            </div>
+        <?php else: ?>
+            <div class="no-data" style="margin-top: 16px;">
+                Select a distributor to view their detailed shipment volume trends.
+            </div>
+        <?php endif; ?>
+    </div>
+
+    </div>
+    <!-- END TAB: Logistics Performance (Module 4) -->
+
+    <!-- TAB 2: Disruption Analytics (continued) -->
+    <div id="tab-disruptions-2" class="tab-content">
+
+    <!-- MODULE 5: Companies Affected by Disruption Event -->
+    <div class="card">
+        <div class="module-header">
+            <h2 class="module-header-title">Companies Affected by Disruption Event</h2>
+            <p class="subtitle">
+                Select a disruption event to see all affected companies and impact levels.
+            </p>
+        </div>
+
+        <!-- Event Selector -->
+        <form method="get" class="df-form">
+            <!-- Preserve other filter values -->
+            <input type="hidden" name="fh_start" value="<?php echo htmlspecialchars($fhStart); ?>">
+            <input type="hidden" name="fh_end" value="<?php echo htmlspecialchars($fhEnd); ?>">
+            <input type="hidden" name="rd_start" value="<?php echo htmlspecialchars($rdStart); ?>">
+            <input type="hidden" name="rd_end" value="<?php echo htmlspecialchars($rdEnd); ?>">
+            <input type="hidden" name="cf_company" value="<?php echo (int)$cfCompanyID; ?>">
+            <input type="hidden" name="td_distributor" value="<?php echo (int)$tdDistributorID; ?>">
+            
+            <div class="df-field" style="min-width: 300px;">
+                <label for="de_event">Select Disruption Event</label>
+                <select id="de_event" name="de_event">
+                    <option value="0">-- Choose an event --</option>
+                    <?php foreach ($eventListOptions as $evt): ?>
+                        <option value="<?php echo (int)$evt['EventID']; ?>"
+                            <?php if ($deEventID === (int)$evt['EventID']) echo 'selected'; ?>>
+                            <?php echo htmlspecialchars('Event #' . $evt['EventID'] . ' - ' . $evt['EventDate'] . ' (' . $evt['CategoryName'] . ')'); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <button type="submit">View Affected Companies</button>
+        </form>
+
+        <?php if ($deEventID > 0): ?>
+            <!-- Event Info Display -->
+            <div style="margin: 16px 0; padding: 12px; background-color: #2d2d2d; border-radius: 8px;">
+                <p style="margin: 4px 0; color: var(--text); font-size: 1rem;">
+                    <strong>Event Date:</strong> <?php echo htmlspecialchars($selectedEventDate); ?>
+                </p>
+                <p style="margin: 4px 0; color: var(--muted); font-size: 0.9rem;">
+                    <strong>Category:</strong> <?php echo htmlspecialchars($selectedEventCategory); ?>
+                </p>
+                <?php if (!empty($selectedEventRecovery)): ?>
+                    <p style="margin: 4px 0; color: var(--muted); font-size: 0.9rem;">
+                        <strong>Recovery Date:</strong> <?php echo htmlspecialchars($selectedEventRecovery); ?>
+                    </p>
+                <?php endif; ?>
+            </div>
+
+            <!-- Affected Companies Table -->
+            <div class="chart-header">
+                <h3 class="chart-title">Affected Companies</h3>
+                <p class="chart-subtitle">
+                    Total affected: <strong><?php echo count($affectedCompanies); ?></strong> companies
+                </p>
+            </div>
+
+            <?php if (!empty($affectedCompanies)): ?>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Company Name</th>
+                                <th>Type</th>
+                                <th>Location</th>
+                                <th>Impact Level</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($affectedCompanies as $company): ?>
+                                <tr>
+                                    <td><?php echo htmlspecialchars($company['CompanyName']); ?></td>
+                                    <td><span class="pill"><?php echo htmlspecialchars($company['Type']); ?></span></td>
+                                    <td>
+                                        <?php echo htmlspecialchars($company['CountryName'] . ', ' . $company['ContinentName']); ?>
+                                    </td>
+                                    <td>
+                                        <span class="pill" style="
+                                            <?php 
+                                            if ($company['ImpactLevel'] === 'High') {
+                                                echo 'background-color: #fee2e2; border-color: #ef4444; color: #991b1b;';
+                                            } elseif ($company['ImpactLevel'] === 'Medium') {
+                                                echo 'background-color: #fef3c7; border-color: #f59e0b; color: #92400e;';
+                                            } else {
+                                                echo 'background-color: #d1fae5; border-color: #10b981; color: #065f46;';
+                                            }
+                                            ?>
+                                        ">
+                                            <?php echo htmlspecialchars($company['ImpactLevel']); ?>
+                                        </span>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php else: ?>
+                <div class="no-data">
+                    No companies affected by this event.
+                </div>
+            <?php endif; ?>
+        <?php else: ?>
+            <div class="no-data">
+                Please select a disruption event to view affected companies.
+            </div>
+        <?php endif; ?>
+    </div>
+
+    <!-- MODULE 6: All Disruptions for a Specific Company -->
+    <div class="card">
+        <div class="module-header">
+            <h2 class="module-header-title">All Disruptions for a Specific Company</h2>
+            <p class="subtitle">
+                Select a company to view all disruption events that have affected them.
+            </p>
+        </div>
+
+        <!-- Company Selector -->
+        <form method="get" class="df-form">
+            <!-- Preserve other filter values -->
+            <input type="hidden" name="fh_start" value="<?php echo htmlspecialchars($fhStart); ?>">
+            <input type="hidden" name="fh_end" value="<?php echo htmlspecialchars($fhEnd); ?>">
+            <input type="hidden" name="rd_start" value="<?php echo htmlspecialchars($rdStart); ?>">
+            <input type="hidden" name="rd_end" value="<?php echo htmlspecialchars($rdEnd); ?>">
+            <input type="hidden" name="cf_company" value="<?php echo (int)$cfCompanyID; ?>">
+            <input type="hidden" name="td_distributor" value="<?php echo (int)$tdDistributorID; ?>">
+            <input type="hidden" name="de_event" value="<?php echo (int)$deEventID; ?>">
+            
+            <div class="df-field" style="min-width: 300px;">
+                <label for="dc_company">Select Company</label>
+                <select id="dc_company" name="dc_company">
+                    <option value="0">-- Choose a company --</option>
+                    <?php foreach ($companyListOptions as $co): ?>
+                        <option value="<?php echo (int)$co['CompanyID']; ?>"
+                            <?php if ($dcCompanyID === (int)$co['CompanyID']) echo 'selected'; ?>>
+                            <?php echo htmlspecialchars($co['CompanyName'] . ' (' . $co['ContinentName'] . ')'); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <button type="submit">View Company Disruptions</button>
+        </form>
+
+        <?php if ($dcCompanyID > 0): ?>
+            <!-- Company Info Display -->
+            <div style="margin: 16px 0; padding: 12px; background-color: #2d2d2d; border-radius: 8px;">
+                <p style="margin: 4px 0; color: var(--text); font-size: 1rem;">
+                    <strong>Company:</strong> <?php echo htmlspecialchars($selectedDisruptionCompanyName); ?>
+                </p>
+                <p style="margin: 4px 0; color: var(--muted); font-size: 0.9rem;">
+                    <strong>Total Disruptions:</strong> <?php echo count($companyDisruptions); ?>
+                </p>
+            </div>
+
+            <!-- Disruptions Table -->
+            <?php if (!empty($companyDisruptions)): ?>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Event ID</th>
+                                <th>Event Date</th>
+                                <th>Category</th>
+                                <th>Impact Level</th>
+                                <th>Recovery Date</th>
+                                <th>Recovery Days</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($companyDisruptions as $disruption): ?>
+                                <tr>
+                                    <td><?php echo htmlspecialchars($disruption['EventID']); ?></td>
+                                    <td><?php echo htmlspecialchars($disruption['EventDate']); ?></td>
+                                    <td><?php echo htmlspecialchars($disruption['CategoryName']); ?></td>
+                                    <td>
+                                        <span class="pill" style="
+                                            <?php 
+                                            if ($disruption['ImpactLevel'] === 'High') {
+                                                echo 'background-color: #fee2e2; border-color: #ef4444; color: #991b1b;';
+                                            } elseif ($disruption['ImpactLevel'] === 'Medium') {
+                                                echo 'background-color: #fef3c7; border-color: #f59e0b; color: #92400e;';
+                                            } else {
+                                                echo 'background-color: #d1fae5; border-color: #10b981; color: #065f46;';
+                                            }
+                                            ?>
+                                        ">
+                                            <?php echo htmlspecialchars($disruption['ImpactLevel']); ?>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <?php echo $disruption['EventRecoveryDate'] ? htmlspecialchars($disruption['EventRecoveryDate']) : 'N/A'; ?>
+                                    </td>
+                                    <td>
+                                        <?php echo $disruption['RecoveryDays'] !== null ? htmlspecialchars($disruption['RecoveryDays']) : 'N/A'; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php else: ?>
+                <div class="no-data">
+                    No disruptions recorded for this company.
+                </div>
+            <?php endif; ?>
+        <?php else: ?>
+            <div class="no-data">
+                Please select a company to view their disruption history.
+            </div>
+        <?php endif; ?>
+    </div>
+
+    </div>
+    <!-- END TAB: Disruption Analytics (Modules 5-6) -->
+
+    <!-- TAB 3: Logistics Performance (continued) -->
+    <div id="tab-logistics-2" class="tab-content">
+
+    <!-- MODULE 7: Distributors Sorted by Average Delay -->
+    <div class="card">
+        <div class="module-header">
+            <h2 class="module-header-title">Distributors Sorted by Average Delay</h2>
+            <p class="subtitle">
+                Top 20 distributors ranked by average delivery delay (highest to lowest).
+            </p>
+        </div>
+
+        <div class="chart-header">
+            <h3 class="chart-title">Average Delay by Distributor</h3>
+            <p class="chart-subtitle">Average days late (or early if negative) for delivered shipments.</p>
+        </div>
+        <div class="df-chart-wrapper">
+            <?php if (!empty($distributorsByDelay)): ?>
+                <canvas id="delayDistChart" height="600"></canvas>
+            <?php else: ?>
+                <div class="no-data">
+                    No distributor delay data available.
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    </div>
+    <!-- END TAB: Logistics Performance (Module 7) -->
+
+    <!-- TAB 4: Data Management -->
+    <div id="tab-management" class="tab-content">
+
+    <!-- MODULE 8: Add New Company -->
+    <div class="card">
+        <div class="module-header">
+            <h2 class="module-header-title">Add New Company</h2>
+            <p class="subtitle">
+                Add a new company to the supply chain network.
+            </p>
+        </div>
+
+        <?php if ($addCompanyMessage): ?>
+            <div style="margin-bottom: 16px; padding: 12px; background-color: <?php echo $addCompanySuccess ? '#d1fae5' : '#fee2e2'; ?>; border-radius: 8px; border: 1px solid <?php echo $addCompanySuccess ? '#10b981' : '#ef4444'; ?>;">
+                <p style="margin: 0; color: <?php echo $addCompanySuccess ? '#065f46' : '#991b1b'; ?>; font-weight: 600;">
+                    <?php echo htmlspecialchars($addCompanyMessage); ?>
+                </p>
+            </div>
+        <?php endif; ?>
+
+        <form method="post" class="df-form">
+            <div class="df-field" style="min-width: 250px;">
+                <label for="new_company_name">Company Name *</label>
+                <input type="text" id="new_company_name" name="new_company_name" 
+                       placeholder="Enter company name" required
+                       style="padding: 0.4rem 0.6rem; border-radius: 6px; border: none; background-color: whitesmoke; color: black; font-size: 0.85rem; outline: none;">
+            </div>
+
+            <div class="df-field" style="min-width: 200px;">
+                <label for="new_company_type">Company Type *</label>
+                <select id="new_company_type" name="new_company_type" required>
+                    <option value="">-- Select Type --</option>
+                    <option value="Supplier">Supplier</option>
+                    <option value="Manufacturer">Manufacturer</option>
+                    <option value="Distributor">Distributor</option>
+                    <option value="Retailer">Retailer</option>
+                </select>
+            </div>
+
+            <div class="df-field" style="min-width: 150px;">
+                <label for="new_company_tier">Tier Level *</label>
+                <select id="new_company_tier" name="new_company_tier" required>
+                    <option value="">-- Select Tier --</option>
+                    <option value="Tier 1">Tier 1</option>
+                    <option value="Tier 2">Tier 2</option>
+                    <option value="Tier 3">Tier 3</option>
+                </select>
+            </div>
+
+            <div class="df-field" style="min-width: 300px;">
+                <label for="new_location_id">Location *</label>
+                <select id="new_location_id" name="new_location_id" required>
+                    <option value="0">-- Select Location --</option>
+                    <?php foreach ($locationOptions as $loc): ?>
+                        <option value="<?php echo (int)$loc['LocationID']; ?>">
+                            <?php echo htmlspecialchars($loc['City'] . ', ' . $loc['CountryName'] . ' (' . $loc['ContinentName'] . ')'); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <button type="submit" name="add_company" value="1">Add Company</button>
+        </form>
+
+        <div style="margin-top: 20px; padding: 12px; background-color: #2d2d2d; border-radius: 8px;">
+            <p style="margin: 4px 0; color: var(--muted); font-size: 0.85rem;">
+                <strong>Note:</strong> All fields marked with * are required. After adding a company, it will appear in the company dropdowns throughout the dashboard.
+            </p>
+        </div>
+    </div>
+
+    </div>
+    <!-- END TAB: Data Management (Module 8) -->
+
+    <!-- TAB 1: Financial Analytics (continued) -->
+    <div id="tab-financial-3" class="tab-content">
+
+    <!-- MODULE 9: Risk vs Financial Health Scatter Plot -->
+    <div class="card">
+        <div class="module-header">
+            <h2 class="module-header-title">Risk vs Financial Health Analysis</h2>
+            <p class="subtitle">
+                Identify companies that appear healthy but are vulnerable to disruptions.
+            </p>
+        </div>
+
+        <div class="chart-header">
+            <h3 class="chart-title">Financial Health vs Disruption Risk</h3>
+            <p class="chart-subtitle">
+                Each point represents a company. X-axis = Average Financial Health (0-100), 
+                Y-axis = Total Disruption Frequency. Companies are color-coded by type.
+            </p>
+        </div>
+
+        <!-- Quadrant Legend -->
+        <div style="display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 16px; padding: 12px; background-color: #2d2d2d; border-radius: 8px;">
+            <div style="flex: 1; min-width: 200px;">
+                <p style="margin: 4px 0; color: var(--muted); font-size: 0.85rem;">
+                    <strong style="color: #10b981;">Lower Right (Ideal):</strong> High health, low risk
+                </p>
+            </div>
+            <div style="flex: 1; min-width: 200px;">
+                <p style="margin: 4px 0; color: var(--muted); font-size: 0.85rem;">
+                    <strong style="color: #f59e0b;">Upper Right (Fragile):</strong> High health, high risk - vulnerable despite good financials
+                </p>
+            </div>
+            <div style="flex: 1; min-width: 200px;">
+                <p style="margin: 4px 0; color: var(--muted); font-size: 0.85rem;">
+                    <strong style="color: #6b7280;">Lower Left (Stable):</strong> Low health, low risk - struggling but stable
+                </p>
+            </div>
+            <div style="flex: 1; min-width: 200px;">
+                <p style="margin: 4px 0; color: var(--muted); font-size: 0.85rem;">
+                    <strong style="color: #ef4444;">Upper Left (Critical):</strong> Low health, high risk - immediate concern
+                </p>
+            </div>
+        </div>
+
+        <div class="df-chart-wrapper">
+            <?php if (!empty($scatterData)): ?>
+                <canvas id="riskHealthScatter" height="600"></canvas>
+            <?php else: ?>
+                <div class="no-data">
+                    No data available for risk vs health analysis.
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    </div>
+    <!-- END TAB: Financial Analytics (Module 9) -->
 
 </div>
 
 <script>
+// Tab Switching Function
+function switchTab(tabName) {
+    // Hide all tab contents
+    var tabContents = document.querySelectorAll('.tab-content');
+    for (var i = 0; i < tabContents.length; i++) {
+        tabContents[i].classList.remove('active');
+    }
+    
+    // Remove active class from all buttons
+    var tabButtons = document.querySelectorAll('.tab-button');
+    for (var i = 0; i < tabButtons.length; i++) {
+        tabButtons[i].classList.remove('active');
+    }
+    
+    // Show selected tab content
+    var selectedTabs = document.querySelectorAll('[id^="tab-' + tabName + '"]');
+    for (var i = 0; i < selectedTabs.length; i++) {
+        selectedTabs[i].classList.add('active');
+    }
+    
+    // Add active class to clicked button
+    event.target.classList.add('active');
+}
+
 (function() {
     // MODULE 1: Financial Health by Company Chart
     var fhCompanyLabels = <?php echo $fhByCompanyLabelsJson; ?>;
@@ -691,6 +1823,540 @@ $rdHighImpactDisruptionsJson = json_encode($rdHighImpactDisruptions);
         });
     }
 
+    // MODULE 2: Most Critical Companies Chart
+    var criticalCompanies = <?php echo $criticalCompaniesJson; ?>;
+    var criticalityScores = <?php echo $criticalityScoresJson; ?>;
+
+    if (criticalCompanies.length && document.getElementById('criticalityChart')) {
+        var ctx4 = document.getElementById('criticalityChart').getContext('2d');
+        new Chart(ctx4, {
+            type: 'bar',
+            data: {
+                labels: criticalCompanies,
+                datasets: [{
+                    label: 'Criticality Score',
+                    data: criticalityScores,
+                    backgroundColor: '#a855f7',
+                    borderColor: '#9333ea',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        ticks: { 
+                            color: '#f5f5f5',
+                            precision: 0
+                        },
+                        grid: { color: 'rgba(255,255,255,0.1)' },
+                        title: {
+                            display: true,
+                            text: 'Criticality Score',
+                            color: '#f5f5f5',
+                            font: { size: 13 }
+                        }
+                    },
+                    y: {
+                        ticks: { color: '#f5f5f5' },
+                        grid: { display: false }
+                    }
+                },
+                plugins: {
+                    legend: { 
+                        labels: { color: '#f5f5f5' }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return 'Criticality Score: ' + context.raw;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // MODULE 2: Disruption Frequency Over Time Chart
+    var disruptionDates = <?php echo $disruptionDatesJson; ?>;
+    var disruptionCounts = <?php echo $disruptionCountsJson; ?>;
+
+    if (disruptionDates.length && document.getElementById('freqTimeChart')) {
+        var ctx5 = document.getElementById('freqTimeChart').getContext('2d');
+        new Chart(ctx5, {
+            type: 'line',
+            data: {
+                labels: disruptionDates,
+                datasets: [{
+                    label: 'Number of Disruptions',
+                    data: disruptionCounts,
+                    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                    borderColor: '#3b82f6',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4,
+                    pointBackgroundColor: '#3b82f6',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2,
+                    pointRadius: 4,
+                    pointHoverRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        ticks: { 
+                            color: '#f5f5f5',
+                            maxRotation: 45,
+                            minRotation: 45
+                        },
+                        grid: { color: 'rgba(255,255,255,0.1)' },
+                        title: {
+                            display: true,
+                            text: 'Month',
+                            color: '#f5f5f5',
+                            font: { size: 13 }
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: { 
+                            color: '#f5f5f5',
+                            precision: 0
+                        },
+                        grid: { color: 'rgba(255,255,255,0.1)' },
+                        title: {
+                            display: true,
+                            text: 'Number of Disruptions',
+                            color: '#f5f5f5',
+                            font: { size: 13 }
+                        }
+                    }
+                },
+                plugins: {
+                    legend: { 
+                        labels: { color: '#f5f5f5' }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return 'Disruptions: ' + context.raw;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // MODULE 3: Company Financials Chart
+    var cfQuarters = <?php echo $cfQuartersJson; ?>;
+    var cfHealthScores = <?php echo $cfHealthScoresJson; ?>;
+
+    if (cfQuarters.length && document.getElementById('companyFinChart')) {
+        var ctx6 = document.getElementById('companyFinChart').getContext('2d');
+        new Chart(ctx6, {
+            type: 'line',
+            data: {
+                labels: cfQuarters,
+                datasets: [{
+                    label: 'Health Score',
+                    data: cfHealthScores,
+                    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+                    borderColor: '#10b981',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4,
+                    pointBackgroundColor: '#10b981',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2,
+                    pointRadius: 4,
+                    pointHoverRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        ticks: { 
+                            color: '#f5f5f5',
+                            maxRotation: 45,
+                            minRotation: 45
+                        },
+                        grid: { color: 'rgba(255,255,255,0.1)' },
+                        title: {
+                            display: true,
+                            text: 'Quarter',
+                            color: '#f5f5f5',
+                            font: { size: 13 }
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        max: 100,
+                        ticks: { 
+                            color: '#f5f5f5',
+                            callback: function(value) {
+                                return value;
+                            }
+                        },
+                        grid: { color: 'rgba(255,255,255,0.1)' },
+                        title: {
+                            display: true,
+                            text: 'Health Score',
+                            color: '#f5f5f5',
+                            font: { size: 13 }
+                        }
+                    }
+                },
+                plugins: {
+                    legend: { 
+                        labels: { color: '#f5f5f5' }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return 'Health Score: ' + context.raw.toFixed(2);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // MODULE 4: Top Distributors Chart
+    var topDistributors = <?php echo $topDistributorsJson; ?>;
+    var topDistributorVolumes = <?php echo $topDistributorVolumesJson; ?>;
+
+    if (topDistributors.length && document.getElementById('topDistChart')) {
+        var ctx7 = document.getElementById('topDistChart').getContext('2d');
+        new Chart(ctx7, {
+            type: 'bar',
+            data: {
+                labels: topDistributors,
+                datasets: [{
+                    label: 'Total Shipment Volume',
+                    data: topDistributorVolumes,
+                    backgroundColor: '#f59e0b',
+                    borderColor: '#d97706',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        ticks: { 
+                            color: '#f5f5f5',
+                            precision: 0
+                        },
+                        grid: { color: 'rgba(255,255,255,0.1)' },
+                        title: {
+                            display: true,
+                            text: 'Total Volume (Units)',
+                            color: '#f5f5f5',
+                            font: { size: 13 }
+                        }
+                    },
+                    y: {
+                        ticks: { color: '#f5f5f5' },
+                        grid: { display: false }
+                    }
+                },
+                plugins: {
+                    legend: { 
+                        labels: { color: '#f5f5f5' }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return 'Volume: ' + context.raw.toLocaleString() + ' units';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // MODULE 4: Distributor Volume Over Time Chart
+    var tdMonths = <?php echo $tdMonthsJson; ?>;
+    var tdVolumes = <?php echo $tdVolumesJson; ?>;
+
+    if (tdMonths.length && document.getElementById('distVolumeChart')) {
+        var ctx8 = document.getElementById('distVolumeChart').getContext('2d');
+        new Chart(ctx8, {
+            type: 'line',
+            data: {
+                labels: tdMonths,
+                datasets: [{
+                    label: 'Shipment Volume',
+                    data: tdVolumes,
+                    backgroundColor: 'rgba(245, 158, 11, 0.2)',
+                    borderColor: '#f59e0b',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4,
+                    pointBackgroundColor: '#f59e0b',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2,
+                    pointRadius: 4,
+                    pointHoverRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        ticks: { 
+                            color: '#f5f5f5',
+                            maxRotation: 45,
+                            minRotation: 45
+                        },
+                        grid: { color: 'rgba(255,255,255,0.1)' },
+                        title: {
+                            display: true,
+                            text: 'Month',
+                            color: '#f5f5f5',
+                            font: { size: 13 }
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: { 
+                            color: '#f5f5f5',
+                            precision: 0
+                        },
+                        grid: { color: 'rgba(255,255,255,0.1)' },
+                        title: {
+                            display: true,
+                            text: 'Volume (Units)',
+                            color: '#f5f5f5',
+                            font: { size: 13 }
+                        }
+                    }
+                },
+                plugins: {
+                    legend: { 
+                        labels: { color: '#f5f5f5' }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return 'Volume: ' + context.raw.toLocaleString() + ' units';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // MODULE 7: Distributors Sorted by Average Delay Chart
+    var distributorsByDelay = <?php echo $distributorsByDelayJson; ?>;
+    var avgDelays = <?php echo $avgDelaysJson; ?>;
+
+    if (distributorsByDelay.length && document.getElementById('delayDistChart')) {
+        var ctx9 = document.getElementById('delayDistChart').getContext('2d');
+        
+        // Color code bars: red for positive delays, green for negative (early)
+        var barColors = avgDelays.map(function(delay) {
+            return delay > 0 ? '#ef4444' : '#10b981';
+        });
+
+        new Chart(ctx9, {
+            type: 'bar',
+            data: {
+                labels: distributorsByDelay,
+                datasets: [{
+                    label: 'Average Delay (Days)',
+                    data: avgDelays,
+                    backgroundColor: barColors,
+                    borderColor: barColors,
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        ticks: { 
+                            color: '#f5f5f5',
+                            callback: function(value) {
+                                return value + ' days';
+                            }
+                        },
+                        grid: { color: 'rgba(255,255,255,0.1)' },
+                        title: {
+                            display: true,
+                            text: 'Average Delay (Days)',
+                            color: '#f5f5f5',
+                            font: { size: 13 }
+                        }
+                    },
+                    y: {
+                        ticks: { color: '#f5f5f5' },
+                        grid: { display: false }
+                    }
+                },
+                plugins: {
+                    legend: { 
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                var delay = context.raw;
+                                if (delay > 0) {
+                                    return 'Avg Delay: ' + delay.toFixed(2) + ' days late';
+                                } else if (delay < 0) {
+                                    return 'Avg Delay: ' + Math.abs(delay).toFixed(2) + ' days early';
+                                } else {
+                                    return 'Avg Delay: On time';
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // MODULE 9: Risk vs Financial Health Scatter Plot
+    var scatterData = <?php echo $scatterDataJson; ?>;
+
+    if (scatterData.length && document.getElementById('riskHealthScatter')) {
+        // Define colors for each company type
+        var typeColors = {
+            'Supplier': '#3b82f6',      // blue
+            'Manufacturer': '#8b5cf6',  // purple
+            'Distributor': '#f59e0b',   // orange
+            'Retailer': '#10b981'       // green
+        };
+
+        // Group data by company type for separate datasets
+        var datasetsByType = {};
+        
+        scatterData.forEach(function(company) {
+            if (!datasetsByType[company.type]) {
+                datasetsByType[company.type] = [];
+            }
+            datasetsByType[company.type].push({
+                x: company.healthScore,
+                y: company.disruptionCount,
+                label: company.companyName,
+                tier: company.tier,
+                downtime: company.totalDowntime
+            });
+        });
+
+        // Create datasets array
+        var datasets = [];
+        Object.keys(datasetsByType).forEach(function(type) {
+            datasets.push({
+                label: type,
+                data: datasetsByType[type],
+                backgroundColor: typeColors[type] || '#6b7280',
+                borderColor: typeColors[type] || '#6b7280',
+                borderWidth: 2,
+                pointRadius: 6,
+                pointHoverRadius: 8
+            });
+        });
+
+        var ctx10 = document.getElementById('riskHealthScatter').getContext('2d');
+        new Chart(ctx10, {
+            type: 'scatter',
+            data: {
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'linear',
+                        position: 'bottom',
+                        min: 0,
+                        max: 100,
+                        ticks: { 
+                            color: '#f5f5f5',
+                            stepSize: 10
+                        },
+                        grid: { 
+                            color: 'rgba(255,255,255,0.1)',
+                            drawBorder: true
+                        },
+                        title: {
+                            display: true,
+                            text: 'Average Financial Health Score',
+                            color: '#f5f5f5',
+                            font: { size: 14, weight: 'bold' }
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: { 
+                            color: '#f5f5f5',
+                            precision: 0
+                        },
+                        grid: { 
+                            color: 'rgba(255,255,255,0.1)',
+                            drawBorder: true
+                        },
+                        title: {
+                            display: true,
+                            text: 'Disruption Frequency (Total Events)',
+                            color: '#f5f5f5',
+                            font: { size: 14, weight: 'bold' }
+                        }
+                    }
+                },
+                plugins: {
+                    legend: { 
+                        labels: { 
+                            color: '#f5f5f5',
+                            font: { size: 12 },
+                            usePointStyle: true,
+                            padding: 15
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                return context[0].raw.label;
+                            },
+                            label: function(context) {
+                                var point = context.raw;
+                                return [
+                                    'Type: ' + context.dataset.label,
+                                    'Tier: ' + point.tier,
+                                    'Health Score: ' + point.x.toFixed(2),
+                                    'Disruptions: ' + point.y,
+                                    'Total Downtime: ' + point.downtime + ' days'
+                                ];
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
 })();
 </script>
 
@@ -700,5 +2366,6 @@ $rdHighImpactDisruptionsJson = json_encode($rdHighImpactDisruptions);
 <?php
 $conn->close();
 ?>
+
 
 
