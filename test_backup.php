@@ -377,7 +377,7 @@ if (count($conditions) > 0) {
 
 // ---- MAIN TRANSACTION QUERY ----
 $txSql = "
-    SELECT TOP 50
+    SELECT 
         s.ShipmentID,
         s.PromisedDate,
         s.ActualDate,
@@ -415,6 +415,7 @@ $txSql = "
         ON s.ProductID = p.ProductID
     $whereClause
     ORDER BY s.PromisedDate DESC, s.ShipmentID DESC
+    LIMIT 50
 ";
 
 $txResult = $conn->query($txSql);
@@ -1339,5 +1340,6 @@ $DSDresult->free();
 $txResult->free();
 $conn->close();
 ?>
+
 
 
