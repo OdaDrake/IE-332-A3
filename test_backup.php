@@ -415,6 +415,7 @@ $txSql = "
         ON s.ProductID = p.ProductID
     $whereClause
     ORDER BY s.PromisedDate DESC, s.ShipmentID DESC
+    LIMIT 50
 ";
 
 $txResult = $conn->query($txSql);
@@ -1339,3 +1340,4 @@ $DSDresult->free();
 $txResult->free();
 $conn->close();
 ?>
+
