@@ -1,0 +1,438 @@
+<?php
+session_start();
+date_default_timezone_set('America/Indiana/Indianapolis');
+
+// Database connection
+$conn = new mysqli("mydb.itap.purdue.edu", "g1151918", "group8ie332", "g1151918");
+$conn->set_charset('utf8mb4');
+if ($conn->connect_error) die("Connection failed");
+
+// Helper function for queries
+function queryToArray($conn, $sql) {
+    $result = $conn->query($sql);
+    if (!$result) return [];
+    $data = [];
+    while ($row = $result->fetch_assoc()) $data[] = $row;
+    $result->free();
+    return $data;
+}
+
+// Get all request parameters with defaults
+$params = [
+    'active_tab' => $_GET['active_tab'] ?? $_POST['active_tab'] ?? 'financial',
+    'fh_start' => $_GET['fh_start'] ?? date('Y-m-d', strtotime('-365 days')),
+    'fh_end' => $_GET['fh_end'] ?? date('Y-m-d'),
+    'fh_view' => $_GET['fh_view'] ?? 'top',
+    'rd_start' => $_GET['rd_start'] ?? date('Y-m-d', strtotime('-365 days')),
+    'rd_end' => $_GET['rd_end'] ?? date('Y-m-d'),
+    'cf_company' => (int)($_GET['cf_company'] ?? 0),
+    'td_distributor' => (int)($_GET['td_distributor'] ?? 0),
+    'de_event' => (int)($_GET['de_event'] ?? 0),
+    'de_search' => $_GET['de_search'] ?? '',
+    'dc_company' => (int)($_GET['dc_company'] ?? 0),
+];
+
+// Extract years from dates
+$fhStartYear = (int)date('Y', strtotime($params['fh_start']));
+$fhEndYear = (int)date('Y', strtotime($params['fh_end']));
+
+// Escape strings for SQL
+$rdStartEsc = $conn->real_escape_string($params['rd_start']);
+$rdEndEsc = $conn->real_escape_string($params['rd_end']);
+
+// ====================
+// DATA QUERIES
+// ====================
+
+// Module 1: Financial Health
+$orderDir = $params['fh_view'] === 'bottom' ? 'ASC' : 'DESC';
+$fhByCompany = queryToArray($conn, "
+    SELECT c.CompanyName, AVG(fr.HealthScore) AS AvgHealthScore
+    FROM Company c JOIN FinancialReport fr ON c.CompanyID = fr.CompanyID
+    WHERE fr.RepYear BETWEEN $fhStartYear AND $fhEndYear
+    GROUP BY c.CompanyID, c.CompanyName
+    HAVING AVG(fr.HealthScore) IS NOT NULL
+    ORDER BY AvgHealthScore $orderDir LIMIT 10
+");
+
+$fhByType = queryToArray($conn, "
+    SELECT c.Type, AVG(fr.HealthScore) AS AvgHealthScore
+    FROM Company c JOIN FinancialReport fr ON c.CompanyID = fr.CompanyID
+    WHERE fr.RepYear BETWEEN $fhStartYear AND $fhEndYear
+    GROUP BY c.Type HAVING AVG(fr.HealthScore) IS NOT NULL
+    ORDER BY AvgHealthScore DESC
+");
+
+// Module 2: Regional Disruptions
+$rdData = queryToArray($conn, "
+    SELECT l.ContinentName AS Region, COUNT(DISTINCT de.EventID) AS Total,
+           SUM(CASE WHEN ic.ImpactLevel = 'Low' THEN 1 ELSE 0 END) AS Low,
+           SUM(CASE WHEN ic.ImpactLevel = 'Medium' THEN 1 ELSE 0 END) AS Medium,
+           SUM(CASE WHEN ic.ImpactLevel = 'High' THEN 1 ELSE 0 END) AS High
+    FROM DisruptionEvent de 
+    JOIN ImpactsCompany ic ON de.EventID = ic.EventID
+    JOIN Company c ON ic.AffectedCompanyID = c.CompanyID
+    JOIN Location l ON c.LocationID = l.LocationID
+    WHERE de.EventDate BETWEEN '$rdStartEsc' AND '$rdEndEsc'
+    GROUP BY l.ContinentName ORDER BY Total DESC
+");
+
+$criticalCompanies = queryToArray($conn, "
+    SELECT c.CompanyName, COUNT(DISTINCT d.DownstreamCompanyID) * 
+           SUM(CASE WHEN ic.ImpactLevel = 'High' THEN 1 ELSE 0 END) AS Criticality
+    FROM Company c
+    LEFT JOIN DependsOn d ON c.CompanyID = d.UpstreamCompanyID
+    LEFT JOIN ImpactsCompany ic ON c.CompanyID = ic.AffectedCompanyID
+    LEFT JOIN DisruptionEvent de ON ic.EventID = de.EventID 
+        AND de.EventDate BETWEEN '$rdStartEsc' AND '$rdEndEsc'
+    GROUP BY c.CompanyID, c.CompanyName HAVING Criticality > 0
+    ORDER BY Criticality DESC LIMIT 20
+");
+
+$disruptionFreq = queryToArray($conn, "
+    SELECT DATE_FORMAT(EventDate, '%Y-%m') AS MonthYear, COUNT(DISTINCT EventID) AS Count
+    FROM DisruptionEvent
+    WHERE EventDate BETWEEN '$rdStartEsc' AND '$rdEndEsc'
+    GROUP BY DATE_FORMAT(EventDate, '%Y-%m') ORDER BY MonthYear ASC
+");
+
+// Module 3: Company Financials
+$companyList = queryToArray($conn, "
+    SELECT c.CompanyID, c.CompanyName, l.CountryName, l.ContinentName
+    FROM Company c JOIN Location l ON c.LocationID = l.LocationID
+    ORDER BY c.CompanyName
+");
+
+$companyFinancials = [];
+if ($params['cf_company']) {
+    $companyFinancials = queryToArray($conn, "
+        SELECT CONCAT(RepYear, '-', Quarter) AS Period, HealthScore
+        FROM FinancialReport WHERE CompanyID = {$params['cf_company']}
+        ORDER BY RepYear ASC, FIELD(Quarter, 'Q1', 'Q2', 'Q3', 'Q4')
+    ");
+}
+
+// Module 4: Distributors
+$topDistributors = queryToArray($conn, "
+    SELECT c.CompanyName, SUM(s.Quantity) AS TotalVolume
+    FROM Shipping s JOIN Company c ON s.DistributorID = c.CompanyID
+    GROUP BY c.CompanyID, c.CompanyName ORDER BY TotalVolume DESC LIMIT 15
+");
+
+$distributorList = queryToArray($conn, "
+    SELECT c.CompanyID, c.CompanyName, l.ContinentName
+    FROM Company c JOIN Location l ON c.LocationID = l.LocationID
+    WHERE c.Type = 'Distributor' ORDER BY c.CompanyName
+");
+
+$distributorVolumes = [];
+if ($params['td_distributor']) {
+    $distributorVolumes = queryToArray($conn, "
+        SELECT DATE_FORMAT(PromisedDate, '%Y-%m') AS Month, SUM(Quantity) AS Volume
+        FROM Shipping WHERE DistributorID = {$params['td_distributor']}
+        GROUP BY DATE_FORMAT(PromisedDate, '%Y-%m') ORDER BY Month ASC
+    ");
+}
+
+// Module 5: Disruption Events
+$searchClause = '';
+if ($params['de_search']) {
+    $search = $conn->real_escape_string($params['de_search']);
+    $searchClause = " AND (dc.CategoryName LIKE '%$search%' OR de.EventID LIKE '%$search%')";
+}
+
+$eventList = queryToArray($conn, "
+    SELECT de.EventID, de.EventDate, dc.CategoryName
+    FROM DisruptionEvent de JOIN DisruptionCategory dc ON de.CategoryID = dc.CategoryID
+    WHERE de.EventDate BETWEEN '$rdStartEsc' AND '$rdEndEsc' $searchClause
+    ORDER BY de.EventDate DESC LIMIT 100
+");
+
+$affectedCompanies = [];
+if ($params['de_event']) {
+    $affectedCompanies = queryToArray($conn, "
+        SELECT c.CompanyName, c.Type, l.CountryName, l.ContinentName, ic.ImpactLevel
+        FROM ImpactsCompany ic
+        JOIN Company c ON ic.AffectedCompanyID = c.CompanyID
+        JOIN Location l ON c.LocationID = l.LocationID
+        WHERE ic.EventID = {$params['de_event']}
+        ORDER BY FIELD(ic.ImpactLevel, 'High', 'Medium', 'Low'), c.CompanyName
+    ");
+}
+
+// Module 6: Company Disruptions
+$companyDisruptions = [];
+if ($params['dc_company']) {
+    $companyDisruptions = queryToArray($conn, "
+        SELECT de.EventID, de.EventDate, de.EventRecoveryDate, dc.CategoryName, 
+               ic.ImpactLevel, DATEDIFF(de.EventRecoveryDate, de.EventDate) AS RecoveryDays
+        FROM ImpactsCompany ic
+        JOIN DisruptionEvent de ON ic.EventID = de.EventID
+        JOIN DisruptionCategory dc ON de.CategoryID = dc.CategoryID
+        WHERE ic.AffectedCompanyID = {$params['dc_company']}
+        ORDER BY de.EventDate DESC
+    ");
+}
+
+// Module 7: Distributor Delays
+$distributorDelays = queryToArray($conn, "
+    SELECT c.CompanyName, AVG(DATEDIFF(s.ActualDate, s.PromisedDate)) AS AvgDelay
+    FROM Company c JOIN Shipping s ON c.CompanyID = s.DistributorID
+    WHERE s.ActualDate IS NOT NULL AND c.Type = 'Distributor'
+    GROUP BY c.CompanyID, c.CompanyName HAVING COUNT(s.ShipmentID) >= 5
+    ORDER BY AvgDelay DESC LIMIT 20
+");
+
+// Module 8: Add Company
+$addMsg = '';
+$addSuccess = false;
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_company'])) {
+    $name = trim($_POST['new_company_name'] ?? '');
+    $type = trim($_POST['new_company_type'] ?? '');
+    $tier = (int)($_POST['new_company_tier'] ?? 0);
+    $city = $conn->real_escape_string(trim($_POST['new_city'] ?? ''));
+    $country = $conn->real_escape_string(trim($_POST['new_country'] ?? ''));
+    $continent = $conn->real_escape_string(trim($_POST['new_continent'] ?? ''));
+    
+    if ($name && $type && $tier > 0 && $city && $country && $continent) {
+        $locResult = queryToArray($conn, "
+            SELECT LocationID FROM Location 
+            WHERE City='$city' AND CountryName='$country' AND ContinentName='$continent'
+        ");
+        
+        $locationID = $locResult ? $locResult[0]['LocationID'] : 0;
+        
+        if (!$locationID) {
+            $conn->query("INSERT INTO Location (City, CountryName, ContinentName) 
+                         VALUES ('$city', '$country', '$continent')");
+            $locationID = $conn->insert_id;
+        }
+        
+        if ($locationID) {
+            $escapedName = $conn->real_escape_string($name);
+            $escapedType = $conn->real_escape_string($type);
+            if ($conn->query("INSERT INTO Company (CompanyName, Type, TierLevel, LocationID) 
+                             VALUES ('$escapedName', '$escapedType', $tier, $locationID)")) {
+                $addSuccess = true;
+                $addMsg = "Company '$name' added successfully!";
+                $params['active_tab'] = 'management';
+            } else {
+                $addMsg = "Error: " . $conn->error;
+            }
+        }
+    } else {
+        $addMsg = "Please fill in all required fields.";
+    }
+}
+
+// Module 9: Risk vs Health Scatter
+$scatterData = queryToArray($conn, "
+    SELECT c.CompanyName, c.Type, c.TierLevel, AVG(fr.HealthScore) AS AvgHealthScore,
+           COUNT(DISTINCT ic.EventID) AS DisruptionCount,
+           COALESCE(SUM(DATEDIFF(de.EventRecoveryDate, de.EventDate)), 0) AS TotalDowntime
+    FROM Company c
+    LEFT JOIN FinancialReport fr ON c.CompanyID = fr.CompanyID
+    LEFT JOIN ImpactsCompany ic ON c.CompanyID = ic.AffectedCompanyID
+    LEFT JOIN DisruptionEvent de ON ic.EventID = de.EventID AND de.EventRecoveryDate IS NOT NULL
+    GROUP BY c.CompanyID HAVING AVG(fr.HealthScore) IS NOT NULL
+    ORDER BY c.CompanyName
+");
+
+// ====================
+// HELPER FUNCTIONS
+// ====================
+
+function hiddenFields($params, $exclude = []) {
+    $fields = '';
+    foreach ($params as $key => $value) {
+        if (!in_array($key, $exclude)) {
+            $fields .= "<input type='hidden' name='$key' value='" . htmlspecialchars($value) . "'>\n";
+        }
+    }
+    return $fields;
+}
+
+function renderSelect($name, $options, $selected, $labelKey, $valueKey = 'CompanyID', $placeholder = '-- Choose --') {
+    echo "<select id='$name' name='$name'><option value='0'>$placeholder</option>";
+    foreach ($options as $opt) {
+        $val = $opt[$valueKey];
+        $label = $opt[$labelKey];
+        $sel = ($selected == $val) ? 'selected' : '';
+        echo "<option value='$val' $sel>" . htmlspecialchars($label) . "</option>";
+    }
+    echo "</select>";
+}
+
+function chartData($array, $keys) {
+    $result = array_fill_keys($keys, []);
+    foreach ($array as $row) {
+        foreach ($keys as $key) {
+            $result[$key][] = $row[$key] ?? 0;
+        }
+    }
+    return array_map('json_encode', $result);
+}
+
+// Prepare chart data
+$fhCompanyChart = chartData($fhByCompany, ['CompanyName', 'AvgHealthScore']);
+$fhTypeChart = chartData($fhByType, ['Type', 'AvgHealthScore']);
+$rdChart = chartData($rdData, ['Region', 'Total', 'Low', 'Medium', 'High']);
+$criticalChart = chartData($criticalCompanies, ['CompanyName', 'Criticality']);
+$freqChart = chartData($disruptionFreq, ['MonthYear', 'Count']);
+$cfChart = chartData($companyFinancials, ['Period', 'HealthScore']);
+$distChart = chartData($topDistributors, ['CompanyName', 'TotalVolume']);
+$distVolChart = chartData($distributorVolumes, ['Month', 'Volume']);
+$delayChart = chartData($distributorDelays, ['CompanyName', 'AvgDelay']);
+
+$conn->close();
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Senior Manager Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --bg: whitesmoke; --card: #3f3f3f; --text: whitesmoke; --muted: #d8d8d8; --accent: #cfb991; }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Verdana, sans-serif; background: var(--bg); color: black; }
+        .top-header { position: fixed; top: 0; left: 0; width: 100%; background: #000; color: #fff; 
+                      text-align: center; padding: 0.75rem 0; z-index: 1000; box-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+        .page { min-height: 100vh; padding: 80px 8px 24px; }
+        .card { background: var(--card); color: var(--text); border-radius: 16px 8px; padding: 20px; 
+                width: 98%; margin: 0 auto 24px; box-shadow: 0 4px 3px #0a0a0a; }
+        .module-header-title { font-size: 1.3rem; margin: 0; }
+        .subtitle { font-size: 0.9rem; color: var(--muted); margin: 0; }
+        .df-form { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-end; margin-bottom: 16px; }
+        .df-field { display: flex; flex-direction: column; gap: 4px; min-width: 160px; }
+        .df-field label { font-size: 0.8rem; color: var(--muted); }
+        .df-field input, .df-field select { padding: 0.4rem 0.6rem; border-radius: 6px; border: none; 
+                                            background: whitesmoke; font-size: 0.85rem; }
+        .df-form button { padding: 0.45rem 0.9rem; border-radius: 8px; border: none; background: var(--accent); 
+                          color: #141414; font-size: 0.85rem; font-weight: 600; cursor: pointer; margin-top: 18px; }
+        .df-chart-wrapper { background: #2d2d2d; border-radius: 12px; padding: 12px; margin-bottom: 16px; }
+        .tab-navigation { display: flex; gap: 8px; margin-bottom: 24px; justify-content: center; flex-wrap: wrap; }
+        .tab-button { padding: 0.75rem 1.5rem; border: none; background: #2d2d2d; color: var(--muted); 
+                      border-radius: 8px; cursor: pointer; font-weight: 600; }
+        .tab-button.active { background: var(--accent); color: #141414; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        table { width: 100%; border-collapse: collapse; background: #2d2d2d; border-radius: 8px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #3a3a3a; }
+        th { color: var(--accent); font-size: 0.9rem; }
+        .pill { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; 
+                font-weight: 600; border: 1px solid; }
+    </style>
+</head>
+<body>
+
+<div class="top-header">Supply Chain Analytics Module</div>
+
+<div class="page">
+    <div style="text-align: center; margin-bottom: 20px;">
+        <a href="dashboard.php" style="display: inline-block; padding: 0.5rem 1rem; background: var(--accent); 
+           color: #141414; text-decoration: none; border-radius: 8px; font-weight: 600;">← Back to Dashboard</a>
+    </div>
+
+    <div class="tab-navigation">
+        <?php foreach (['financial', 'disruptions', 'logistics', 'management'] as $tab): ?>
+            <button class="tab-button <?= $params['active_tab'] === $tab ? 'active' : '' ?>" 
+                    onclick="switchTab('<?= $tab ?>')"><?= ucfirst($tab) ?></button>
+        <?php endforeach; ?>
+    </div>
+
+    <!-- Financial Tab -->
+    <div id="tab-financial" class="tab-content <?= $params['active_tab'] === 'financial' ? 'active' : '' ?>">
+        <div class="card">
+            <h2 class="module-header-title">Financial Health Analysis</h2>
+            <p class="subtitle">Average health scores across companies and types.</p>
+            
+            <form method="get" class="df-form">
+                <?= hiddenFields($params, ['fh_start', 'fh_end', 'fh_view']) ?>
+                <div class="df-field"><label>Start date</label>
+                    <input type="date" name="fh_start" value="<?= $params['fh_start'] ?>"></div>
+                <div class="df-field"><label>End date</label>
+                    <input type="date" name="fh_end" value="<?= $params['fh_end'] ?>"></div>
+                <button type="submit">Update View</button>
+            </form>
+
+            <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                <?php foreach (['top', 'bottom'] as $view): ?>
+                    <form method="get" style="display: inline;">
+                        <?= hiddenFields(array_merge($params, ['fh_view' => $view]), []) ?>
+                        <button type="submit" style="background: <?= $params['fh_view'] === $view ? 'var(--accent)' : 'transparent' ?>; 
+                                border: 2px solid var(--accent); color: <?= $params['fh_view'] === $view ? '#141414' : 'var(--accent)' ?>;">
+                            <?= ucfirst($view) ?> 10
+                        </button>
+                    </form>
+                <?php endforeach; ?>
+            </div>
+
+            <h3 style="margin: 16px 0 8px; font-size: 1.05rem;"><?= ucfirst($params['fh_view']) ?> 10 Companies</h3>
+            <div class="df-chart-wrapper">
+                <?php if ($fhByCompany): ?>
+                    <canvas id="fhCompanyChart" height="600"></canvas>
+                <?php else: ?>
+                    <p style="color: #ddd;">No data for selected period.</p>
+                <?php endif; ?>
+            </div>
+
+            <h3 style="margin: 16px 0 8px; font-size: 1.05rem;">By Company Type</h3>
+            <div class="df-chart-wrapper">
+                <?php if ($fhByType): ?>
+                    <canvas id="fhTypeChart" height="400"></canvas>
+                <?php endif; ?>
+            </div>
+        </div>
+
+        <!-- Company Financials & Risk Scatter charts would go here similarly -->
+    </div>
+
+    <!-- Other tabs follow same pattern -->
+</div>
+
+<script>
+function switchTab(name) {
+    document.querySelectorAll('.tab-content, .tab-button').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll(`[id^="tab-${name}"]`).forEach(el => el.classList.add('active'));
+    event.target.classList.add('active');
+}
+
+// Generic chart creator
+function createChart(id, type, labels, datasets, opts = {}) {
+    const el = document.getElementById(id);
+    if (!el || !labels.length) return;
+    
+    new Chart(el.getContext('2d'), {
+        type: type,
+        data: { labels: labels, datasets: datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            indexAxis: opts.horizontal ? 'y' : 'x',
+            scales: {
+                x: { ticks: { color: '#f5f5f5' }, grid: { color: 'rgba(255,255,255,0.1)' } },
+                y: { ticks: { color: '#f5f5f5' }, grid: { color: 'rgba(255,255,255,0.1)' }, 
+                     beginAtZero: true, ...(opts.max && { max: opts.max }) }
+            },
+            plugins: { legend: { labels: { color: '#f5f5f5' } } }
+        }
+    });
+}
+
+// Create all charts
+createChart('fhCompanyChart', 'bar', <?= $fhCompanyChart['CompanyName'] ?? '[]' ?>, 
+    [{ label: 'Health Score', data: <?= $fhCompanyChart['AvgHealthScore'] ?? '[]' ?>, 
+       backgroundColor: '#60a5fa', borderColor: '#3b82f6', borderWidth: 1 }], 
+    { horizontal: true, max: 100 });
+
+createChart('fhTypeChart', 'bar', <?= $fhTypeChart['Type'] ?? '[]' ?>,
+    [{ label: 'Health Score', data: <?= $fhTypeChart['AvgHealthScore'] ?? '[]' ?>,
+       backgroundColor: '#10b981', borderWidth: 1 }], { max: 100 });
+
+// Add other charts similarly...
+</script>
+
+</body>
+</html>
