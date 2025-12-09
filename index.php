@@ -20,12 +20,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if ($username === $supply_username && $password === $supply_password) {
     $_SESSION['logged_in'] = true;
     $_SESSION['username']  = $username;
-    header('Location: supplychainmanager.php');
+    header('Location: test_backup.php');
     exit;
   } elseif ($username === $senior_username && $password === $senior_password) {
     $_SESSION['logged_in'] = true;
     $_SESSION['username']  = $username;
-    header('Location: test_backup.php');
+    header('Location: SCM_page.html');
     exit;
   } else {
     // Store an error message and reload the login page
@@ -317,7 +317,7 @@ if (isset($_SESSION['login_error'])) {
   <body>
   <div class="header">
     <img src="https://assets.streamlinehq.com/image/private/w_300,h_300,ar_1/f_auto/v1/icons/logos/palantir-xdp5vzpsdiuov68zwbgn.png/palantir-4vc1iawq4sqw5r2jh1n7cr.png?_a=DATAg1AAZAA0">
-    <h1>Palantir</h1>
+    <h1>IE332 Group 8 ERP</h1>
     <div class="dummy">
 
     </div>
@@ -326,7 +326,7 @@ if (isset($_SESSION['login_error'])) {
   <div class="dialogue-backdrop"></div>
 
   <div class="headerspacer">
-    <h1>Palantir</h1>
+    <h1>IE332 Group 8 ERP Login</h1>
   </div>
     <div class="content">
       <div class="photoboxwrapper">
@@ -340,11 +340,14 @@ if (isset($_SESSION['login_error'])) {
             </div>
             <p>Jake Getson</p>
             <underline></underline>
-            <div class="dialogue">Hi I'm Jake!</div>
+            <div class="dialogue">Hi I'm Jake, and I'm from Miami, Florida. I choose to study IE at Purdue because I enjoy working across large systems and getting the change
+              to continuously improve them. My favorite part of IE332 has been the oppertunity to get to know my groupmates as we've tackled each assignment together. 
+            </div>
           </div>
           <div class="card">
             <div class="squarewrapper">
               <div class="square">
+                <img src="Alejandro Melendez Headshot.jpg">
               </div>
             </div>
             <p>Alejandro Melendez</p>
