@@ -1,83 +1,4 @@
-<?php
-session_start();
-date_default_timezone_set('America/Indiana/Indianapolis');
 
-// Database connection
-$conn = new mysqli("mydb.itap.purdue.edu", "g1151918", "group8ie332", "g1151918");
-$conn->set_charset('utf8mb4');
-if ($conn->connect_error) die("Connection failed");
-
-// Helper function for queries
-function queryToArray($conn, $sql) {
-    $result = $conn->query($sql);
-    if (!$result) return [];
-    $data = [];
-    while ($row = $result->fetch_assoc()) $data[] = $row;
-    $result->free();
-    return $data;
-}
-
-// Get all request parameters with defaults
-$params = [
-    'active_tab' => $_GET['active_tab'] ?? $_POST['active_tab'] ?? 'financial',
-    'fh_start' => $_GET['fh_start'] ?? date('Y-m-d', strtotime('-365 days')),
-    'fh_end' => $_GET['fh_end'] ?? date('Y-m-d'),
-    'fh_view' => $_GET['fh_view'] ?? 'top',
-    'rd_start' => $_GET['rd_start'] ?? date('Y-m-d', strtotime('-365 days')),
-    'rd_end' => $_GET['rd_end'] ?? date('Y-m-d'),
-    'cf_company' => (int)($_GET['cf_company'] ?? 0),
-    'td_distributor' => (int)($_GET['td_distributor'] ?? 0),
-    'de_event' => (int)($_GET['de_event'] ?? 0),
-    'de_search' => $_GET['de_search'] ?? '',
-    'dc_company' => (int)($_GET['dc_company'] ?? 0),
-];
-
-// Extract years from dates
-$fhStartYear = (int)date('Y', strtotime($params['fh_start']));
-$fhEndYear = (int)date('Y', strtotime($params['fh_end']));
-
-// Escape strings for SQL
-$rdStartEsc = $conn->real_escape_string($params['rd_start']);
-$rdEndEsc = $conn->real_escape_string($params['rd_end']);
-
-// ====================
-// DATA QUERIES
-// ====================
-
-// Module 1: Financial Health
-$orderDir = $params['fh_view'] === 'bottom' ? 'ASC' : 'DESC';
-$fhByCompany = queryToArray($conn, "
-    SELECT c.CompanyName, AVG(fr.HealthScore) AS AvgHealthScore
-    FROM Company c JOIN FinancialReport fr ON c.CompanyID = fr.CompanyID
-    WHERE fr.RepYear BETWEEN $fhStartYear AND $fhEndYear
-    GROUP BY c.CompanyID, c.CompanyName
-    HAVING AVG(fr.HealthScore) IS NOT NULL
-    ORDER BY AvgHealthScore $orderDir LIMIT 10
-");
-
-$fhByType = queryToArray($conn, "
-    SELECT c.Type, AVG(fr.HealthScore) AS AvgHealthScore
-    FROM Company c JOIN FinancialReport fr ON c.CompanyID = fr.CompanyID
-    WHERE fr.RepYear BETWEEN $fhStartYear AND $fhEndYear
-    GROUP BY c.Type HAVING AVG(fr.HealthScore) IS NOT NULL
-    ORDER BY AvgHealthScore DESC
-");
-
-// Module 2: Regional Disruptions
-$rdData = queryToArray($conn, "
-    SELECT l.ContinentName AS Region, COUNT(DISTINCT de.EventID) AS Total,
-           SUM(CASE WHEN ic.ImpactLevel = 'Low' THEN 1 ELSE 0 END) AS Low,
-           SUM(CASE WHEN ic.ImpactLevel = 'Medium' THEN 1 ELSE 0 END) AS Medium,
-           SUM(CASE WHEN ic.ImpactLevel = 'High' THEN 1 ELSE 0 END) AS High
-    FROM DisruptionEvent de 
-    JOIN ImpactsCompany ic ON de.EventID = ic.EventID
-    JOIN Company c ON ic.AffectedCompanyID = c.CompanyID
-    JOIN Location l ON c.LocationID = l.LocationID
-    WHERE de.EventDate BETWEEN '$rdStartEsc' AND '$rdEndEsc'
-    GROUP BY l.ContinentName ORDER BY Total DESC
-");
-
-$criticalCompanies = queryToArray($conn, "
     SELECT c.CompanyName, COUNT(DISTINCT d.DownstreamCompanyID) * 
            SUM(CASE WHEN ic.ImpactLevel = 'High' THEN 1 ELSE 0 END) AS Criticality
     FROM Company c
@@ -435,4 +356,5 @@ createChart('fhTypeChart', 'bar', <?= $fhTypeChart['Type'] ?? '[]' ?>,
 </script>
 
 </body>
+
 </html>
