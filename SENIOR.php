@@ -335,6 +335,36 @@ if ($cfCompanyID > 0) {
     }
 }
 
+// Average Financial Health by Region
+$fhByRegionLabels = array();
+$fhByRegionValues = array();
+
+if ($fhStart !== '' && $fhEnd !== '') {
+    $fhRegionSql = "
+        SELECT 
+            l.ContinentName AS Region,
+            AVG(fr.HealthScore) AS AvgHealthScore
+        FROM Company c
+        JOIN Location l ON c.LocationID = l.LocationID
+        JOIN FinancialReport fr ON c.CompanyID = fr.CompanyID
+        WHERE fr.RepYear >= $fhStartYear
+          AND fr.RepYear <= $fhEndYear
+        GROUP BY l.ContinentName
+        HAVING AVG(fr.HealthScore) IS NOT NULL
+        ORDER BY AvgHealthScore DESC
+    ";
+
+    $fhRegionRes = $conn->query($fhRegionSql);
+    if (!$fhRegionRes) {
+        die("Financial health by region query failed: " . $conn->error);
+    }
+    while ($row = $fhRegionRes->fetch_assoc()) {
+        $fhByRegionLabels[] = $row['Region'];
+        $fhByRegionValues[] = round($row['AvgHealthScore'], 2);
+    }
+    $fhRegionRes->free();
+}
+
 // Top Distributors by Shipment Volume
 
 
@@ -732,6 +762,8 @@ $fhByCompanyLabelsJson = json_encode($fhByCompanyLabels);
 $fhByCompanyValuesJson = json_encode($fhByCompanyValues);
 $fhByTypeLabelsJson = json_encode($fhByTypeLabels);
 $fhByTypeValuesJson = json_encode($fhByTypeValues);
+$fhByRegionLabelsJson = json_encode($fhByRegionLabels);
+$fhByRegionValuesJson = json_encode($fhByRegionValues);
 $rdRegionsJson = json_encode($rdRegions);
 $rdTotalDisruptionsJson = json_encode($rdTotalDisruptions);
 $rdLowImpactDisruptionsJson = json_encode($rdLowImpactDisruptions);
@@ -797,19 +829,26 @@ $scatterDataJson = json_encode($scatterData);
             justify-content: space-between;
             align-items: center;
             gap: 20px;
+            position: relative;
         }
 
         .header-tabs {
-            display: flex;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
             gap: 8px;
             flex-shrink: 0;
+            width: 440px;
+            z-index: 2;
         }
 
         .header-title {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
             font-size: 1.2rem;
             font-weight: normal;
             text-align: center;
-            flex-grow: 1;
+            z-index: 1;
         }
 
         .header-tab-button {
@@ -845,6 +884,8 @@ $scatterDataJson = json_encode($scatterData);
             font-size: 0.9rem;
             transition: background-color 0.15s ease;
             flex-shrink: 0;
+            align-self: center;
+            z-index: 2;
         }
 
         .logout-link:hover {
@@ -853,7 +894,7 @@ $scatterDataJson = json_encode($scatterData);
 
         .page {
             min-height: 100vh;
-            padding-top: 100px;
+            padding-top: 20px;
             padding-left: 8px;
             padding-right: 8px;
             padding-bottom: 24px;
@@ -1123,7 +1164,6 @@ $scatterDataJson = json_encode($scatterData);
         <!-- Financial Health by Company -->
         <div class="chart-header">
             <h3 class="chart-title">All Companies by Average Financial Health</h3>
-            <p class="chart-subtitle">Companies sorted from highest to lowest health scores. Scroll horizontally to see more.</p>
         </div>
         <div class="df-chart-wrapper">
             <?php if (!empty($fhByCompanyLabels)): ?>
@@ -1142,7 +1182,6 @@ $scatterDataJson = json_encode($scatterData);
         <!-- Financial Health by Company Type -->
         <div class="chart-header">
             <h3 class="chart-title">Average Financial Health by Company Type</h3>
-            <p class="chart-subtitle">Comparison of health scores across different company types.</p>
         </div>
         <div class="df-chart-wrapper">
             <?php if (!empty($fhByTypeLabels)): ?>
@@ -1160,8 +1199,30 @@ $scatterDataJson = json_encode($scatterData);
         <div class="module-header">
             <h2 class="module-header-title">Company Financials by Region</h2>
             <p class="subtitle">
-                Search for any company and view their financial health trends over time.
+                View average financial health by region, then search for any company to see their detailed financial health trends over time.
             </p>
+        </div>
+
+        <!-- Average Health by Region Chart -->
+        <div class="chart-header">
+            <h3 class="chart-title">Average Financial Health by Region</h3>
+        </div>
+        <div class="df-chart-wrapper">
+            <?php if (!empty($fhByRegionLabels)): ?>
+                <canvas id="fhRegionChart" height="400"></canvas>
+            <?php else: ?>
+                <div class="no-data">
+                    No regional financial health data found for the selected period. Try expanding the date range.
+                </div>
+            <?php endif; ?>
+        </div>
+
+        <!-- Section Divider -->
+        <div style="margin: 32px 0; border-top: 2px solid #2d2d2d;"></div>
+
+        <!-- Individual Company Analysis -->
+        <div class="chart-header" style="margin-bottom: 16px;">
+            <h3 class="chart-title">Individual Company Analysis</h3>
         </div>
 
         <!-- Company Selector -->
@@ -1201,7 +1262,6 @@ $scatterDataJson = json_encode($scatterData);
             <!-- Financial Health Chart -->
             <div class="chart-header">
                 <h3 class="chart-title">Financial Health Score Over Time</h3>
-                <p class="chart-subtitle">Quarterly health scores from financial reports.</p>
             </div>
             <div class="df-chart-wrapper">
                 <?php if (!empty($cfQuarters)): ?>
@@ -1306,7 +1366,6 @@ $scatterDataJson = json_encode($scatterData);
         <!-- Regional Disruption Chart -->
         <div class="chart-header">
             <h3 class="chart-title">Total and High-Impact Disruptions by Continent</h3>
-            <p class="chart-subtitle">Stacked bar chart showing disruption distribution across continents.</p>
         </div>
         <div class="df-chart-wrapper">
             <?php if (!empty($rdRegions)): ?>
@@ -1321,7 +1380,6 @@ $scatterDataJson = json_encode($scatterData);
         <!-- Most Critical Companies Chart -->
         <div class="chart-header">
             <h3 class="chart-title">Most Critical Companies</h3>
-            <p class="chart-subtitle">Criticality Score = Downstream Dependencies × High-Impact Disruptions</p>
         </div>
         <div class="df-chart-wrapper">
             <?php if (!empty($criticalCompanies)): ?>
@@ -1336,7 +1394,6 @@ $scatterDataJson = json_encode($scatterData);
         <!-- Disruption Frequency Over Time Chart -->
         <div class="chart-header">
             <h3 class="chart-title">Disruption Frequency Over Time</h3>
-            <p class="chart-subtitle">Number of disruptions per month in the selected period.</p>
         </div>
         <div class="df-chart-wrapper">
             <?php if (!empty($disruptionDates)): ?>
@@ -1381,24 +1438,6 @@ $scatterDataJson = json_encode($scatterData);
             <?php endif; ?>
         </div>
 
-        <!-- Risk Level Legend -->
-        <div style="display: flex; flex-wrap: wrap; gap: 20px; margin-top: 16px; padding: 12px; background-color: #2d2d2d; border-radius: 8px;">
-            <div style="flex: 1; min-width: 200px;">
-                <p style="margin: 4px 0; color: var(--muted); font-size: 0.85rem;">
-                    <strong style="color: #ef4444;">🔴 Critical Risk:</strong> Immediate attention required - high dependency with poor resilience
-                </p>
-            </div>
-            <div style="flex: 1; min-width: 200px;">
-                <p style="margin: 4px 0; color: var(--muted); font-size: 0.85rem;">
-                    <strong style="color: #f59e0b;">🟡 Elevated Risk:</strong> Monitor closely - significant impact potential
-                </p>
-            </div>
-            <div style="flex: 1; min-width: 200px;">
-                <p style="margin: 4px 0; color: var(--muted); font-size: 0.85rem;">
-                    <strong style="color: #10b981;">🟢 Moderate Risk:</strong> Lower priority but worth tracking
-                </p>
-            </div>
-        </div>
     </div>
 
     <!-- Companies Affected by Disruption Event -->
@@ -1456,9 +1495,6 @@ $scatterDataJson = json_encode($scatterData);
             <!-- Affected Companies Table -->
             <div class="chart-header">
                 <h3 class="chart-title">Affected Companies</h3>
-                <p class="chart-subtitle">
-                    Total affected: <strong><?php echo count($affectedCompanies); ?></strong> companies
-                </p>
             </div>
 
             <?php if (!empty($affectedCompanies)): ?>
@@ -1638,7 +1674,6 @@ $scatterDataJson = json_encode($scatterData);
         <!-- Top Distributors Chart -->
         <div class="chart-header">
             <h3 class="chart-title">Top 15 Distributors by Total Volume</h3>
-            <p class="chart-subtitle">Total shipment quantity across all time.</p>
         </div>
         <div class="df-chart-wrapper">
             <?php if (!empty($topDistributors)): ?>
@@ -1697,7 +1732,6 @@ $scatterDataJson = json_encode($scatterData);
             <!-- Distributor Volume Over Time Chart -->
             <div class="chart-header">
                 <h3 class="chart-title">Shipment Volume Over Time</h3>
-                <p class="chart-subtitle">Monthly shipment volumes for selected distributor in the chosen date range.</p>
             </div>
             <div class="df-chart-wrapper">
                 <?php if (!empty($tdMonths)): ?>
@@ -1726,7 +1760,6 @@ $scatterDataJson = json_encode($scatterData);
 
         <div class="chart-header">
             <h3 class="chart-title">Average Delay by Distributor</h3>
-            <p class="chart-subtitle">Average days late (or early if negative) for delivered shipments.</p>
         </div>
         <div class="df-chart-wrapper">
             <?php if (!empty($distributorsByDelay)): ?>
@@ -1972,6 +2005,71 @@ function switchTab(tabName) {
                     x: {
                         ticks: { color: '#f5f5f5' },
                         grid: { display: false }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        max: 100,
+                        ticks: { color: '#f5f5f5' },
+                        grid: { color: 'rgba(255,255,255,0.1)' },
+                        title: {
+                            display: true,
+                            text: 'Health Score',
+                            color: '#f5f5f5',
+                            font: { size: 13 }
+                        }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return 'Health Score: ' + context.raw.toFixed(2);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Financial Health by Region Chart
+    var fhRegionLabels = <?php echo $fhByRegionLabelsJson; ?>;
+    var fhRegionValues = <?php echo $fhByRegionValuesJson; ?>;
+
+    if (fhRegionLabels.length && document.getElementById('fhRegionChart')) {
+        var ctx2b = document.getElementById('fhRegionChart').getContext('2d');
+        
+        var regionColors = fhRegionLabels.map(function(label, index) {
+            var colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'];
+            return colors[index % colors.length];
+        });
+
+        new Chart(ctx2b, {
+            type: 'bar',
+            data: {
+                labels: fhRegionLabels,
+                datasets: [{
+                    label: 'Average Health Score',
+                    data: fhRegionValues,
+                    backgroundColor: regionColors,
+                    borderColor: regionColors.map(c => c),
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        ticks: { color: '#f5f5f5' },
+                        grid: { display: false },
+                        title: {
+                            display: true,
+                            text: 'Region',
+                            color: '#f5f5f5',
+                            font: { size: 13 }
+                        }
                     },
                     y: {
                         beginAtZero: true,
@@ -2751,21 +2849,3 @@ setInterval(updateClocks, 1000);
 <?php
 $conn->close();
 ?>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
