@@ -588,7 +588,13 @@ if ($delayDistRes) {
 $addCompanyMessage = '';
 $addCompanySuccess = false;
 
-// form submission
+// Check for message parameters in URL (from redirect)
+if (isset($_GET['msg'])) {
+    $addCompanyMessage = urldecode($_GET['msg']);
+    $addCompanySuccess = isset($_GET['msg_type']) && $_GET['msg_type'] === 'success';
+}
+
+// Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_company'])) {
     $newCompanyName = isset($_POST['new_company_name']) ? trim($_POST['new_company_name']) : '';
     $newCompanyType = isset($_POST['new_company_type']) ? trim($_POST['new_company_type']) : '';
@@ -602,59 +608,89 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_company'])) {
         $escapedCity = $conn->real_escape_string($newCity);
         $escapedCountry = $conn->real_escape_string($newCountry);
         $escapedContinent = $conn->real_escape_string($newContinent);
+        $escapedName = $conn->real_escape_string($newCompanyName);
+        $escapedType = $conn->real_escape_string($newCompanyType);
         
-        $locationCheckSql = "
-            SELECT LocationID 
-            FROM Location 
-            WHERE City = '$escapedCity' 
-              AND CountryName = '$escapedCountry' 
-              AND ContinentName = '$escapedContinent'
-        ";
-        
-        $locationCheckRes = $conn->query($locationCheckSql);
         $locationID = 0;
         
-        if ($locationCheckRes && $locationCheckRes->num_rows > 0) {
-            $row = $locationCheckRes->fetch_assoc();
-            $locationID = (int)$row['LocationID'];
-            $locationCheckRes->free();
-        } else {
-            // Insert new location
-            $insertLocationSql = "
-                INSERT INTO Location (City, CountryName, ContinentName)
-                VALUES ('$escapedCity', '$escapedCountry', '$escapedContinent')
-            ";
-            
-            if ($conn->query($insertLocationSql)) {
-                $locationID = $conn->insert_id;
-            } else {
-                $addCompanyMessage = "Error adding location: " . $conn->error;
-            }
-        }
+        $insertLocationSql = "
+            INSERT INTO Location (City, CountryName, ContinentName)
+            VALUES ('$escapedCity', '$escapedCountry', '$escapedContinent')
+            ON DUPLICATE KEY UPDATE LocationID = LAST_INSERT_ID(LocationID)
+        ";
         
+        if ($conn->query($insertLocationSql)) {
+            $locationID = $conn->insert_id;
+            
+            if ($locationID == 0) {
+                $locationCheckSql = "
+                    SELECT LocationID 
+                    FROM Location 
+                    WHERE City = '$escapedCity' 
+                      AND CountryName = '$escapedCountry' 
+                      AND ContinentName = '$escapedContinent'
+                ";
+                $locationCheckRes = $conn->query($locationCheckSql);
+                if ($locationCheckRes && $locationCheckRes->num_rows > 0) {
+                    $row = $locationCheckRes->fetch_assoc();
+                    $locationID = (int)$row['LocationID'];
+                    $locationCheckRes->free();
+                }
+            }
+        } else {
+            $msg = urlencode("Error adding location: " . $conn->error);
+            header("Location: " . $_SERVER['PHP_SELF'] . "?active_tab=management&msg=$msg&msg_type=error");
+            exit();
+        }
         
         if ($locationID > 0) {
-            $escapedName = $conn->real_escape_string($newCompanyName);
-            $escapedType = $conn->real_escape_string($newCompanyType);
-
-            $insertSql = "
-                INSERT INTO Company (CompanyName, Type, TierLevel, LocationID)
-                VALUES ('$escapedName', '$escapedType', $newCompanyTier, $locationID)
+            $companyCheckSql = "
+                SELECT CompanyID 
+                FROM Company 
+                WHERE CompanyName = '$escapedName'
             ";
-
-            if ($conn->query($insertSql)) {
-                $addCompanySuccess = true;
-                $addCompanyMessage = "Company '$newCompanyName' added successfully with Tier $newCompanyTier!";
-                $activeTab = 'management'; // Stay on management tab
+            
+            $companyCheckRes = $conn->query($companyCheckSql);
+            
+            if ($companyCheckRes && $companyCheckRes->num_rows > 0) {
+                $msg = urlencode("Error: A company with the name '$newCompanyName' already exists in the database.");
+                header("Location: " . $_SERVER['PHP_SELF'] . "?active_tab=management&msg=$msg&msg_type=error");
+                exit();
             } else {
-                $addCompanyMessage = "Error adding company: " . $conn->error;
+                $insertSql = "
+                    INSERT INTO Company (CompanyName, Type, TierLevel, LocationID)
+                    VALUES ('$escapedName', '$escapedType', $newCompanyTier, $locationID)
+                ";
+
+                if ($conn->query($insertSql)) {
+                    $msg = urlencode("Company '$newCompanyName' added successfully with Tier $newCompanyTier!");
+                    header("Location: " . $_SERVER['PHP_SELF'] . "?active_tab=management&msg=$msg&msg_type=success");
+                    exit();
+                } else {
+                    if ($conn->errno == 1062) {
+                        $msg = urlencode("Error: A company with the name '$newCompanyName' already exists in the database.");
+                    } else {
+                        $msg = urlencode("Error adding company: " . $conn->error);
+                    }
+                    header("Location: " . $_SERVER['PHP_SELF'] . "?active_tab=management&msg=$msg&msg_type=error");
+                    exit();
+                }
             }
+            
+            if ($companyCheckRes) {
+                $companyCheckRes->free();
+            }
+        } else {
+            $msg = urlencode("Error: Could not create or retrieve location. Please try again.");
+            header("Location: " . $_SERVER['PHP_SELF'] . "?active_tab=management&msg=$msg&msg_type=error");
+            exit();
         }
     } else {
-        $addCompanyMessage = "Please fill in all required fields. Tier must be 1, 2, or 3.";
+        $msg = urlencode("Please fill in all required fields. Tier must be 1, 2, or 3.");
+        header("Location: " . $_SERVER['PHP_SELF'] . "?active_tab=management&msg=$msg&msg_type=error");
+        exit();
     }
 }
-
 
 // Risk vs Financial Health Scatter Plot
 
@@ -2657,6 +2693,7 @@ function switchTab(tabName) {
 <?php
 $conn->close();
 ?>
+
 
 
 
