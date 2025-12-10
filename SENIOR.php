@@ -1032,7 +1032,7 @@ $scatterDataJson = json_encode($scatterData);
         <button class="header-tab-button <?php echo ($activeTab === 'management') ? 'active' : ''; ?>" onclick="switchTab('management')">Data Management</button>
     </div>
     <div class="header-title">Senior Manager Dashboard</div>
-    <a href="dashboard.php" class="logout-link">Log Out</a>
+    <a href="index.php" class="logout-link">Log Out</a>
 </div>
 
 <div class="page">
@@ -2657,6 +2657,9 @@ function switchTab(tabName) {
 <?php
 $conn->close();
 ?>
+
+
+
 
 
 
