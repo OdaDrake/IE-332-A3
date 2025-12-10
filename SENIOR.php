@@ -19,7 +19,7 @@ if ($conn->connect_error) {
     die("Connection failed: " . htmlspecialchars($conn->connect_error));
 }
 
-$activeTab = isset($_GET['active_tab']) ? $_GET['active_tab'] : 'financial';
+$activeTab = isset($_GET['active_tab']) ? $_GET['active_tab'] : (isset($_POST['active_tab']) ? $_POST['active_tab'] : 'financial');
 
 
 // Financial Health Analysis
@@ -691,7 +691,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_company'])) {
         exit();
     }
 }
-
 // Risk vs Financial Health Scatter Plot
 
 $scatterData = array();
@@ -1056,7 +1055,33 @@ $scatterDataJson = json_encode($scatterData);
             font-weight: 600;
             border: 1px solid;
         }
-    </style>
+
+        .global-footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            padding: 8px 0;
+            background: #1a1a1a;
+            color: var(--text);
+            border-top: 1px solid #333;
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            font-size: 0.9rem;
+            z-index: 999;
+        }
+
+
+        .footer-timezone {
+            color: var(--muted);
+        }
+
+        .footer-timezone strong {
+            color: var(--accent);
+            margin-right: 4px;
+        }
+</style>
 </head>
 <body>
 
@@ -1463,7 +1488,7 @@ $scatterDataJson = json_encode($scatterData);
                                         <?php echo htmlspecialchars($company['CountryName'] . ', ' . $company['ContinentName']); ?>
                                     </td>
                                     <td>
-                                        <span class="pill" style="
+                                        <span class="pill" style ="
                                             <?php 
                                             if ($company['ImpactLevel'] === 'High') {
                                                 echo 'background-color: #fee2e2; border-color: #ef4444; color: #991b1b;';
@@ -1804,6 +1829,19 @@ $scatterDataJson = json_encode($scatterData);
 
     </div>
     <!-- END TAB: Data Management -->
+
+    <footer class="global-footer">
+        <div class="footer-timezone">
+            <strong>New York:</strong> <span id="clock-ny"></span>
+        </div>
+        <div class="footer-timezone">
+            <strong>London:</strong> <span id="clock-lon"></span>
+        </div>
+        <div class="footer-timezone">
+            <strong>Shanghai:</strong> <span id="clock-sh"></span>
+        </div>
+    </footer>
+ 
 
 </div>
 
@@ -2202,11 +2240,11 @@ function switchTab(tabName) {
             var normalizedScore = score / maxScore;
             
             if (normalizedScore > 0.7) {
-                return '#ef4444'; // Critical - Red
+                return '#ef4444'; 
             } else if (normalizedScore > 0.4) {
-                return '#f59e0b'; // Elevated - Orange
+                return '#f59e0b'; 
             } else {
-                return '#10b981'; // Moderate - Green
+                return '#10b981'; 
             }
         });
 
@@ -2687,12 +2725,40 @@ function switchTab(tabName) {
 })();
 </script>
 
+<!-- JS, world clocks -->
+<script>
+function updateClocks() {
+    const now = new Date();
+
+    const fmt = {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+    };
+
+    document.getElementById("clock-ny").textContent =
+    now.toLocaleTimeString("en-US", { ...fmt, timeZone: "America/New_York" });
+
+    document.getElementById("clock-lon").textContent =
+    now.toLocaleTimeString("en-US", { ...fmt, timeZone: "Europe/London" });
+
+    document.getElementById("clock-sh").textContent =
+    now.toLocaleTimeString("en-US", { ...fmt, timeZone: "Asia/Shanghai" });
+    }
+
+updateClocks();
+setInterval(updateClocks, 1000);
+</script>
+
 </body>
 </html>
 
 <?php
 $conn->close();
 ?>
+
+
+
 
 
 
