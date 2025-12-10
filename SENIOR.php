@@ -788,17 +788,70 @@ $scatterDataJson = json_encode($scatterData);
             width: 100%;
             background-color: #000;
             color: #fff;
-            text-align: center;
-            padding: 0.75rem 0;
-            font-size: 1.2rem;
-            font-weight: normal;
+            padding: 0.75rem 20px;
             z-index: 1000;
             box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .header-tabs {
+            display: flex;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .header-title {
+            font-size: 1.2rem;
+            font-weight: normal;
+            text-align: center;
+            flex-grow: 1;
+        }
+
+        .header-tab-button {
+            padding: 0.5rem 1rem;
+            background-color: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: 500;
+            transition: background-color 0.15s ease, color 0.15s ease;
+            white-space: nowrap;
+        }
+
+        .header-tab-button:hover {
+            background-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .header-tab-button.active {
+            background-color: var(--accent);
+            color: #141414;
+            font-weight: 600;
+        }
+
+        .logout-link {
+            padding: 0.5rem 1.2rem;
+            background-color: var(--accent);
+            color: #141414;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: background-color 0.15s ease;
+            flex-shrink: 0;
+        }
+
+        .logout-link:hover {
+            background-color: var(--accent-hover);
         }
 
         .page {
             min-height: 100vh;
-            padding-top: 80px;
+            padding-top: 100px;
             padding-left: 8px;
             padding-right: 8px;
             padding-bottom: 24px;
@@ -935,60 +988,7 @@ $scatterDataJson = json_encode($scatterData);
             color: #ddd;
         }
 
-        .nav-links {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-
-        .nav-links a {
-            display: inline-block;
-            padding: 0.5rem 1rem;
-            margin: 0 0.5rem;
-            background-color: var(--accent);
-            color: #141414;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: 600;
-            transition: background-color 0.15s ease;
-        }
-
-        .nav-links a:hover {
-            background-color: var(--accent-hover);
-        }
-
         /* Tab Navigation Styles */
-        .tab-navigation {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 24px;
-            flex-wrap: wrap;
-            justify-content: center;
-        }
-
-        .tab-button {
-            padding: 0.75rem 1.5rem;
-            border: none;
-            background-color: #2d2d2d;
-            color: var(--muted);
-            border-radius: 8px;
-            font-size: 0.95rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            border: 2px solid transparent;
-        }
-
-        .tab-button:hover {
-            background-color: #3a3a3a;
-            color: var(--text);
-        }
-
-        .tab-button.active {
-            background-color: var(--accent);
-            color: #141414;
-            border-color: var(--accent-hover);
-        }
-
         .tab-content {
             display: none;
         }
@@ -1053,23 +1053,17 @@ $scatterDataJson = json_encode($scatterData);
 <body>
 
 <div class="top-header">
-    Supply Chain Analytics Module
+    <div class="header-tabs">
+        <button class="header-tab-button <?php echo ($activeTab === 'financial') ? 'active' : ''; ?>" onclick="switchTab('financial')">Financial Analytics</button>
+        <button class="header-tab-button <?php echo ($activeTab === 'disruptions') ? 'active' : ''; ?>" onclick="switchTab('disruptions')">Disruption Analytics</button>
+        <button class="header-tab-button <?php echo ($activeTab === 'logistics') ? 'active' : ''; ?>" onclick="switchTab('logistics')">Logistics Performance</button>
+        <button class="header-tab-button <?php echo ($activeTab === 'management') ? 'active' : ''; ?>" onclick="switchTab('management')">Data Management</button>
+    </div>
+    <div class="header-title">Senior Manager Dashboard</div>
+    <a href="dashboard.php" class="logout-link">Log Out</a>
 </div>
 
 <div class="page">
-
-    <!-- Navigation Links -->
-    <div class="nav-links">
-        <a href="dashboard.php">← Back to Main Dashboard</a>
-    </div>
-
-    <!-- Tab Navigation -->
-    <div class="tab-navigation">
-        <button class="tab-button <?php echo ($activeTab === 'financial') ? 'active' : ''; ?>" onclick="switchTab('financial')">Financial Analytics</button>
-        <button class="tab-button <?php echo ($activeTab === 'disruptions') ? 'active' : ''; ?>" onclick="switchTab('disruptions')">Disruption Analytics</button>
-        <button class="tab-button <?php echo ($activeTab === 'logistics') ? 'active' : ''; ?>" onclick="switchTab('logistics')">Logistics Performance</button>
-        <button class="tab-button <?php echo ($activeTab === 'management') ? 'active' : ''; ?>" onclick="switchTab('management')">Data Management</button>
-    </div>
 
     <!-- TAB 1: Financial Analytics -->
     <div id="tab-financial" class="tab-content <?php echo ($activeTab === 'financial') ? 'active' : ''; ?>">
@@ -1814,8 +1808,8 @@ function switchTab(tabName) {
         tabContents[i].classList.remove('active');
     }
     
-    // Remove active class from all buttons
-    var tabButtons = document.querySelectorAll('.tab-button');
+    // Remove active class from all header tab buttons
+    var tabButtons = document.querySelectorAll('.header-tab-button');
     for (var i = 0; i < tabButtons.length; i++) {
         tabButtons[i].classList.remove('active');
     }
@@ -2692,6 +2686,8 @@ function switchTab(tabName) {
 <?php
 $conn->close();
 ?>
+
+
 
 
 
