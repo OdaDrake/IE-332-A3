@@ -7,7 +7,6 @@ ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
-// DB connection
 $servername = "mydb.itap.purdue.edu";
 $username   = "g1151918";
 $password   = "group8ie332";
@@ -20,14 +19,12 @@ if ($conn->connect_error) {
     die("Connection failed: " . htmlspecialchars($conn->connect_error));
 }
 
-// Active tab tracking
 $activeTab = isset($_GET['active_tab']) ? $_GET['active_tab'] : 'financial';
 
-// -------------------------------------------------
-// MODULE 1: Financial Health Analysis
-// -------------------------------------------------
 
-// Date range filters
+// Financial Health Analysis
+
+// Date Ranges
 $fhStart = isset($_GET['fh_start']) ? trim($_GET['fh_start']) : '';
 $fhEnd   = isset($_GET['fh_end'])   ? trim($_GET['fh_end'])   : '';
 
@@ -36,11 +33,11 @@ if ($fhStart === '' && $fhEnd === '') {
     $fhStart = date('Y-m-d', strtotime('-365 days'));
 }
 
-// Extract years for SQL queries
+// Pulls the year for our queries
 $fhStartYear = (int)date('Y', strtotime($fhStart));
 $fhEndYear = (int)date('Y', strtotime($fhEnd));
 
-// ---------- Average Financial Health by Company ----------
+// Average Financial Health by Company
 $fhByCompanyLabels = array();
 $fhByCompanyValues = array();
 
@@ -70,7 +67,7 @@ if ($fhStart !== '' && $fhEnd !== '') {
     $fhCompanyRes->free();
 }
 
-// ---------- Average Financial Health by Company Type ----------
+// Average Financial Health by Company Type 
 $fhByTypeLabels = array();
 $fhByTypeValues = array();
 
@@ -100,11 +97,9 @@ if ($fhStart !== '' && $fhEnd !== '') {
     $fhTypeRes->free();
 }
 
-// -------------------------------------------------
-// MODULE 2: Regional Disruption Overview
-// -------------------------------------------------
+// Regional Disruption Overview
 
-// Date range filters for disruptions
+// Date Ranges
 $rdStart = isset($_GET['rd_start']) ? trim($_GET['rd_start']) : '';
 $rdEnd   = isset($_GET['rd_end'])   ? trim($_GET['rd_end'])   : '';
 
@@ -113,7 +108,7 @@ if ($rdStart === '' && $rdEnd === '') {
     $rdStart = date('Y-m-d', strtotime('-365 days'));
 }
 
-// ---------- Regional Disruption Data ----------
+// Regional Disruption Data 
 $rdRegions = array();
 $rdTotalDisruptions = array();
 $rdLowImpactDisruptions = array();
@@ -158,7 +153,6 @@ if ($rdStart !== '' && $rdEnd !== '') {
     $rdRes->free();
 }
 
-// ---------- Most Critical Companies ----------
 $criticalCompanies = array();
 $criticalityScores = array();
 
@@ -198,7 +192,7 @@ if ($rdStart !== '' && $rdEnd !== '') {
     $criticalRes->free();
 }
 
-// ---------- Disruption Frequency Over Time ----------
+// Disruption Frequency Over Time
 $disruptionDates = array();
 $disruptionCounts = array();
 
@@ -228,7 +222,7 @@ if ($rdStart !== '' && $rdEnd !== '') {
     $freqTimeRes->free();
 }
 
-// ---------- Supply Chain Vulnerability Score ----------
+// Supply Chain Vulnerability Score
 $vulnerableCompanies = array();
 $vulnerabilityScores = array();
 
@@ -280,14 +274,11 @@ if ($rdStart !== '' && $rdEnd !== '') {
     $vulnerabilityRes->free();
 }
 
-// -------------------------------------------------
-// MODULE 3: Company Financials by Region
-// -------------------------------------------------
+// Company Financials by Region
 
-// Company selector
 $cfCompanyID = isset($_GET['cf_company']) ? (int)$_GET['cf_company'] : 0;
 
-// Get list of all companies for dropdown (with region)
+// Companies for drop down
 $companyListOptions = array();
 $companyListSql = "
     SELECT 
@@ -307,14 +298,12 @@ if ($companyListRes) {
     $companyListRes->free();
 }
 
-// Selected company data
 $selectedCompanyName = '';
 $selectedCompanyRegion = '';
 $cfQuarters = array();
 $cfHealthScores = array();
 
 if ($cfCompanyID > 0) {
-    // Get company info
     $companyInfoSql = "
         SELECT 
             c.CompanyName,
@@ -331,7 +320,7 @@ if ($cfCompanyID > 0) {
         $companyInfoRes->free();
     }
 
-    // Get financial data
+    // Financial data
     $cfDataSql = "
         SELECT 
             CONCAT(RepYear, '-', Quarter) AS Period,
@@ -351,14 +340,11 @@ if ($cfCompanyID > 0) {
     }
 }
 
-// -------------------------------------------------
-// MODULE 4: Top Distributors by Shipment Volume
-// -------------------------------------------------
+// Top Distributors by Shipment Volume
 
-// Distributor selector
+
 $tdDistributorID = isset($_GET['td_distributor']) ? (int)$_GET['td_distributor'] : 0;
 
-// Date range filters for distributor volume
 $tdStart = isset($_GET['td_start']) ? trim($_GET['td_start']) : '';
 $tdEnd   = isset($_GET['td_end'])   ? trim($_GET['td_end'])   : '';
 
@@ -367,7 +353,7 @@ if ($tdStart === '' && $tdEnd === '') {
     $tdStart = date('Y-m-d', strtotime('-365 days'));
 }
 
-// Get list of all distributors
+// list of all distributors
 $distributorListOptions = array();
 $distributorListSql = "
     SELECT DISTINCT
@@ -387,7 +373,6 @@ if ($distributorListRes) {
     $distributorListRes->free();
 }
 
-// Top distributors overall
 $topDistributors = array();
 $topDistributorVolumes = array();
 
@@ -410,21 +395,18 @@ if ($topDistRes) {
     $topDistRes->free();
 }
 
-// Selected distributor data
+// Distributor data
 $selectedDistributorName = '';
 $tdMonths = array();
 $tdVolumes = array();
 
 if ($tdDistributorID > 0) {
-    // Get distributor name
     $distNameSql = "SELECT CompanyName FROM Company WHERE CompanyID = $tdDistributorID";
     $distNameRes = $conn->query($distNameSql);
     if ($distNameRes && $row = $distNameRes->fetch_assoc()) {
         $selectedDistributorName = $row['CompanyName'];
         $distNameRes->free();
     }
-
-    // Get monthly shipment volumes with date filtering
     $tdStartEsc = $conn->real_escape_string($tdStart);
     $tdEndEsc   = $conn->real_escape_string($tdEnd);
     
@@ -449,14 +431,12 @@ if ($tdDistributorID > 0) {
     }
 }
 
-// -------------------------------------------------
-// MODULE 5: Companies Affected by Disruption Event
-// -------------------------------------------------
+// Companies Affected by Disruption Event
 
 // Event selector
 $deEventID = isset($_GET['de_event']) ? (int)$_GET['de_event'] : 0;
 
-// Get list of disruption events (filtered by date range)
+// List of disruption events 
 $eventListOptions = array();
 $eventListSql = "
     SELECT 
@@ -486,7 +466,7 @@ $selectedEventRecovery = '';
 $affectedCompanies = array();
 
 if ($deEventID > 0) {
-    // Get event info
+   
     $eventInfoSql = "
         SELECT 
             de.EventDate,
@@ -504,7 +484,7 @@ if ($deEventID > 0) {
         $eventInfoRes->free();
     }
 
-    // Get affected companies
+    // Affected companies
     $affectedSql = "
         SELECT 
             c.CompanyName,
@@ -529,11 +509,9 @@ if ($deEventID > 0) {
     }
 }
 
-// -------------------------------------------------
-// MODULE 6: All Disruptions for a Specific Company
-// -------------------------------------------------
+// All disruptions for a set company
 
-// Company selector for disruptions
+// Selector for disruptions
 $dcCompanyID = isset($_GET['dc_company']) ? (int)$_GET['dc_company'] : 0;
 
 // Selected company disruptions
@@ -541,7 +519,6 @@ $selectedDisruptionCompanyName = '';
 $companyDisruptions = array();
 
 if ($dcCompanyID > 0) {
-    // Get company name
     $compNameSql = "SELECT CompanyName FROM Company WHERE CompanyID = $dcCompanyID";
     $compNameRes = $conn->query($compNameSql);
     if ($compNameRes && $row = $compNameRes->fetch_assoc()) {
@@ -549,7 +526,7 @@ if ($dcCompanyID > 0) {
         $compNameRes->free();
     }
 
-    // Get all disruptions affecting this company (filtered by date range)
+    // All disruptions affecting this company 
     $rdStartEsc = $conn->real_escape_string($rdStart);
     $rdEndEsc   = $conn->real_escape_string($rdEnd);
     
@@ -578,9 +555,7 @@ if ($dcCompanyID > 0) {
     }
 }
 
-// -------------------------------------------------
-// MODULE 7: Distributors Sorted by Average Delay
-// -------------------------------------------------
+// Distributors Sorted by Average Delay
 
 $distributorsByDelay = array();
 $avgDelays = array();
@@ -608,14 +583,12 @@ if ($delayDistRes) {
     $delayDistRes->free();
 }
 
-// -------------------------------------------------
-// MODULE 8: Add New Company
-// -------------------------------------------------
+// Ability to add new company 
 
 $addCompanyMessage = '';
 $addCompanySuccess = false;
 
-// Handle form submission
+// form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_company'])) {
     $newCompanyName = isset($_POST['new_company_name']) ? trim($_POST['new_company_name']) : '';
     $newCompanyType = isset($_POST['new_company_type']) ? trim($_POST['new_company_type']) : '';
@@ -625,7 +598,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_company'])) {
     $newContinent = isset($_POST['new_continent']) ? trim($_POST['new_continent']) : '';
 
     if ($newCompanyName && $newCompanyType && $newCompanyTier > 0 && $newCity && $newCountry && $newContinent) {
-        // First, check if location exists or create it
+        
         $escapedCity = $conn->real_escape_string($newCity);
         $escapedCountry = $conn->real_escape_string($newCountry);
         $escapedContinent = $conn->real_escape_string($newContinent);
@@ -659,7 +632,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_company'])) {
             }
         }
         
-        // Now insert the company if we have a valid location
+        
         if ($locationID > 0) {
             $escapedName = $conn->real_escape_string($newCompanyName);
             $escapedType = $conn->real_escape_string($newCompanyType);
@@ -682,9 +655,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_company'])) {
     }
 }
 
-// -------------------------------------------------
-// MODULE 9: Risk vs Financial Health Scatter Plot
-// -------------------------------------------------
+
+// Risk vs Financial Health Scatter Plot
 
 $scatterData = array();
 
@@ -1068,7 +1040,7 @@ $scatterDataJson = json_encode($scatterData);
     <!-- TAB 1: Financial Analytics -->
     <div id="tab-financial" class="tab-content <?php echo ($activeTab === 'financial') ? 'active' : ''; ?>">
 
-    <!-- MODULE 1: Financial Health Analysis -->
+    <!-- Financial Health Analysis -->
     <div class="card">
         <div class="module-header">
             <h2 class="module-header-title">Financial Health Analysis</h2>
@@ -1127,7 +1099,7 @@ $scatterDataJson = json_encode($scatterData);
         </div>
     </div>
 
-    <!-- MODULE 3: Company Financials by Region -->
+    <!-- Company Financials by Region -->
     <div class="card">
         <div class="module-header">
             <h2 class="module-header-title">Company Financials by Region</h2>
@@ -1191,7 +1163,7 @@ $scatterDataJson = json_encode($scatterData);
         <?php endif; ?>
     </div>
 
-    <!-- MODULE 9: Risk vs Financial Health Scatter Plot -->
+    <!-- Risk vs Financial Health Scatter Plot -->
     <div class="card">
         <div class="module-header">
             <h2 class="module-header-title">Risk vs Financial Health Analysis</h2>
@@ -1249,7 +1221,7 @@ $scatterDataJson = json_encode($scatterData);
     <!-- TAB 2: Disruption Analytics -->
     <div id="tab-disruptions" class="tab-content <?php echo ($activeTab === 'disruptions') ? 'active' : ''; ?>">
 
-    <!-- MODULE 2: Regional Disruption Overview -->
+    <!-- Regional Disruption Overview -->
     <div class="card">
         <div class="module-header">
             <h2 class="module-header-title">Regional Disruption Overview</h2>
@@ -1373,7 +1345,7 @@ $scatterDataJson = json_encode($scatterData);
         </div>
     </div>
 
-    <!-- MODULE 5: Companies Affected by Disruption Event -->
+    <!-- Companies Affected by Disruption Event -->
     <div class="card">
         <div class="module-header">
             <h2 class="module-header-title">Companies Affected by Disruption Event</h2>
@@ -1486,7 +1458,7 @@ $scatterDataJson = json_encode($scatterData);
         <?php endif; ?>
     </div>
 
-    <!-- MODULE 6: All Disruptions for a Specific Company -->
+    <!-- All Disruptions for a Specific Company -->
     <div class="card">
         <div class="module-header">
             <h2 class="module-header-title">All Disruptions for a Specific Company</h2>
@@ -1598,7 +1570,7 @@ $scatterDataJson = json_encode($scatterData);
     <!-- TAB 3: Logistics Performance -->
     <div id="tab-logistics" class="tab-content <?php echo ($activeTab === 'logistics') ? 'active' : ''; ?>">
 
-    <!-- MODULE 4: Top Distributors by Shipment Volume -->
+    <!-- Top Distributors by Shipment Volume -->
     <div class="card">
         <div class="module-header">
             <h2 class="module-header-title">Top Distributors by Shipment Volume</h2>
@@ -1687,7 +1659,7 @@ $scatterDataJson = json_encode($scatterData);
         <?php endif; ?>
     </div>
 
-    <!-- MODULE 7: Distributors Sorted by Average Delay -->
+    <!-- Distributors Sorted by Average Delay -->
     <div class="card">
         <div class="module-header">
             <h2 class="module-header-title">Distributors Sorted by Average Delay</h2>
@@ -1717,7 +1689,7 @@ $scatterDataJson = json_encode($scatterData);
     <!-- TAB 4: Data Management -->
     <div id="tab-management" class="tab-content <?php echo ($activeTab === 'management') ? 'active' : ''; ?>">
 
-    <!-- MODULE 8: Add New Company -->
+    <!-- Add New Company -->
     <div class="card">
         <div class="module-header">
             <h2 class="module-header-title">Add New Company</h2>
@@ -1802,30 +1774,29 @@ $scatterDataJson = json_encode($scatterData);
 <script>
 // Tab Switching Function
 function switchTab(tabName) {
-    // Hide all tab contents
+    
     var tabContents = document.querySelectorAll('.tab-content');
     for (var i = 0; i < tabContents.length; i++) {
         tabContents[i].classList.remove('active');
     }
     
-    // Remove active class from all header tab buttons
+    
     var tabButtons = document.querySelectorAll('.header-tab-button');
     for (var i = 0; i < tabButtons.length; i++) {
         tabButtons[i].classList.remove('active');
     }
     
-    // Show selected tab content - match all tabs with this prefix
     var selectedTabs = document.querySelectorAll('[id^="tab-' + tabName + '"]');
     for (var i = 0; i < selectedTabs.length; i++) {
         selectedTabs[i].classList.add('active');
     }
     
-    // Add active class to clicked button
+    
     event.target.classList.add('active');
 }
 
 (function() {
-    // MODULE 1: Financial Health by Company Chart
+    
     var fhCompanyLabels = <?php echo $fhByCompanyLabelsJson; ?>;
     var fhCompanyValues = <?php echo $fhByCompanyValuesJson; ?>;
 
@@ -1900,14 +1871,14 @@ function switchTab(tabName) {
         });
     }
 
-    // MODULE 1: Financial Health by Type Chart
+    // Financial Health by Type Chart
     var fhTypeLabels = <?php echo $fhByTypeLabelsJson; ?>;
     var fhTypeValues = <?php echo $fhByTypeValuesJson; ?>;
 
     if (fhTypeLabels.length && document.getElementById('fhTypeChart')) {
         var ctx2 = document.getElementById('fhTypeChart').getContext('2d');
         
-        // Generate colors for each type
+        
         var typeColors = fhTypeLabels.map(function(label, index) {
             var colors = ['#10b981', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4'];
             return colors[index % colors.length];
@@ -1960,7 +1931,7 @@ function switchTab(tabName) {
         });
     }
 
-    // MODULE 2: Regional Disruption Chart (Stacked Bar)
+    // Regional Disruption Chart (Stacked Bar)
     var rdRegions = <?php echo $rdRegionsJson; ?>;
     var rdLow = <?php echo $rdLowImpactDisruptionsJson; ?>;
     var rdMedium = <?php echo $rdMediumImpactDisruptionsJson; ?>;
@@ -2050,7 +2021,7 @@ function switchTab(tabName) {
         });
     }
 
-    // MODULE 2: Most Critical Companies Chart
+    // Most Critical Companies Chart
     var criticalCompanies = <?php echo $criticalCompaniesJson; ?>;
     var criticalityScores = <?php echo $criticalityScoresJson; ?>;
 
@@ -2108,7 +2079,7 @@ function switchTab(tabName) {
         });
     }
 
-    // MODULE 2: Disruption Frequency Over Time Chart
+    // Disruption Frequency Over Time Chart
     var disruptionDates = <?php echo $disruptionDatesJson; ?>;
     var disruptionCounts = <?php echo $disruptionCountsJson; ?>;
 
@@ -2189,7 +2160,7 @@ function switchTab(tabName) {
     if (vulnerableCompanies.length && document.getElementById('vulnerabilityChart')) {
         var ctx5b = document.getElementById('vulnerabilityChart').getContext('2d');
         
-        // Color code bars based on vulnerability level (gradient from green to red)
+        // Color coded based on vulnerability level (gradient from green to red)
         var barColors = vulnerabilityScores.map(function(score, index) {
             var maxScore = Math.max.apply(null, vulnerabilityScores);
             var normalizedScore = score / maxScore;
@@ -2271,7 +2242,7 @@ function switchTab(tabName) {
         });
     }
 
-    // MODULE 3: Company Financials Chart
+    // Company Financials Chart
     var cfQuarters = <?php echo $cfQuartersJson; ?>;
     var cfHealthScores = <?php echo $cfHealthScoresJson; ?>;
 
@@ -2348,7 +2319,7 @@ function switchTab(tabName) {
         });
     }
 
-    // MODULE 4: Top Distributors Chart
+    // Top Distributors Chart
     var topDistributors = <?php echo $topDistributorsJson; ?>;
     var topDistributorVolumes = <?php echo $topDistributorVolumesJson; ?>;
 
@@ -2406,7 +2377,7 @@ function switchTab(tabName) {
         });
     }
 
-    // MODULE 4: Distributor Volume Over Time Chart
+    // Distributor Volume Over Time Chart
     var tdMonths = <?php echo $tdMonthsJson; ?>;
     var tdVolumes = <?php echo $tdVolumesJson; ?>;
 
@@ -2480,14 +2451,14 @@ function switchTab(tabName) {
         });
     }
 
-    // MODULE 7: Distributors Sorted by Average Delay Chart
+    // Distributors Sorted by Average Delay Chart
     var distributorsByDelay = <?php echo $distributorsByDelayJson; ?>;
     var avgDelays = <?php echo $avgDelaysJson; ?>;
 
     if (distributorsByDelay.length && document.getElementById('delayDistChart')) {
         var ctx9 = document.getElementById('delayDistChart').getContext('2d');
         
-        // Color code bars: red for positive delays, green for negative (early)
+        // Color code bars: red for positive delays, green for negative
         var barColors = avgDelays.map(function(delay) {
             return delay > 0 ? '#ef4444' : '#10b981';
         });
@@ -2552,7 +2523,7 @@ function switchTab(tabName) {
         });
     }
 
-    // MODULE 9: Risk vs Financial Health Scatter Plot
+    // Risk vs Financial Health Scatter Plot
     var scatterData = <?php echo $scatterDataJson; ?>;
 
     if (scatterData.length && document.getElementById('riskHealthScatter')) {
@@ -2572,7 +2543,7 @@ function switchTab(tabName) {
                 datasetsByType[company.type] = [];
             }
             
-            // Calculate point size based on downtime (min 4, max 20)
+            // Calculate visual size based on downtime
             var pointSize = Math.min(20, Math.max(4, 4 + (company.totalDowntime / 10)));
             
             datasetsByType[company.type].push({
@@ -2686,6 +2657,9 @@ function switchTab(tabName) {
 <?php
 $conn->close();
 ?>
+
+
+
 
 
 
